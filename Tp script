@@ -1,0 +1,569 @@
+--// SIMPLE TELEPORT HUB - CLEAN BLACK EDITION
+--// LocalScript: StarterPlayer > StarterPlayerScripts
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Remove previous copy
+local oldGui = PlayerGui:FindFirstChild("SimpleTeleportHub")
+if oldGui then
+    oldGui:Destroy()
+end
+
+-- SETTINGS
+local BG = Color3.fromRGB(12, 12, 14)
+local PANEL = Color3.fromRGB(20, 20, 23)
+local ROW = Color3.fromRGB(27, 27, 31)
+local HOVER = Color3.fromRGB(38, 38, 43)
+local TEXT = Color3.fromRGB(240, 240, 243)
+local MUTED = Color3.fromRGB(150, 150, 160)
+local BORDER = Color3.fromRGB(55, 55, 62)
+local ACCENT = Color3.fromRGB(210, 210, 220)
+
+local pinned = {}
+local lastPosition = nil
+local busy = false
+local windowOpen = false
+local rows = {}
+local connections = {}
+
+local function connect(signal, callback)
+    local connection = signal:Connect(callback)
+    table.insert(connections, connection)
+    return connection
+end
+
+local function create(className, props, parent)
+    local obj = Instance.new(className)
+    for key, value in pairs(props or {}) do
+        obj[key] = value
+    end
+    obj.Parent = parent
+    return obj
+end
+
+local function round(obj, radius)
+    create("UICorner", {
+        CornerRadius = UDim.new(0, radius or 9)
+    }, obj)
+end
+
+local function outline(obj, color)
+    return create("UIStroke", {
+        Color = color or BORDER,
+        Thickness = 1,
+        Transparency = 0
+    }, obj)
+end
+
+local function animate(obj, duration, props)
+    local t = TweenService:Create(
+        obj,
+        TweenInfo.new(duration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+        props
+    )
+    t:Play()
+    return t
+end
+
+local function makeButton(parent, text, size, position)
+    local button = create("TextButton", {
+        Size = size,
+        Position = position,
+        BackgroundColor3 = PANEL,
+        BorderSizePixel = 0,
+        Text = text,
+        TextColor3 = TEXT,
+        TextSize = 12,
+        Font = Enum.Font.GothamSemibold,
+        AutoButtonColor = false
+    }, parent)
+
+    round(button, 8)
+    outline(button)
+
+    connect(button.MouseEnter, function()
+        animate(button, 0.12, {BackgroundColor3 = HOVER})
+    end)
+
+    connect(button.MouseLeave, function()
+        animate(button, 0.12, {BackgroundColor3 = PANEL})
+    end)
+
+    return button
+end
+
+-- SCREEN GUI
+local gui = create("ScreenGui", {
+    Name = "SimpleTeleportHub",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+}, PlayerGui)
+
+-- DRAG FUNCTION
+local function makeDraggable(object, handle)
+    local dragging = false
+    local dragStart
+    local startPosition
+    local activeInput
+
+    connect(handle.InputBegan, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+
+            dragging = true
+            dragStart = input.Position
+            startPosition = object.Position
+
+            local endConnection
+            endConnection = input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    if endConnection then
+                        endConnection:Disconnect()
+                    end
+                end
+            end)
+        end
+    end)
+
+    connect(handle.InputChanged, function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            activeInput = input
+        end
+    end)
+
+    connect(UserInputService.InputChanged, function(input)
+        if dragging and input == activeInput then
+            local delta = input.Position - dragStart
+            object.Position = UDim2.new(
+                startPosition.X.Scale,
+                startPosition.X.Offset + delta.X,
+                startPosition.Y.Scale,
+                startPosition.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+-- OPEN BUTTON (visible when the menu is closed)
+local openButton = create("TextButton", {
+    Name = "OpenButton",
+    Size = UDim2.fromOffset(88, 38),
+    Position = UDim2.new(0, 22, 0.5, -19),
+    BackgroundColor3 = BG,
+    BorderSizePixel = 0,
+    Text = "OPEN",
+    TextColor3 = TEXT,
+    TextSize = 13,
+    Font = Enum.Font.GothamBold,
+    AutoButtonColor = false,
+    Visible = true
+}, gui)
+
+round(openButton, 9)
+outline(openButton)
+makeDraggable(openButton, openButton)
+
+-- MAIN WINDOW
+local main = create("Frame", {
+    Name = "MainWindow",
+    Size = UDim2.fromOffset(420, 470),
+    Position = UDim2.new(0.5, -210, 0.5, -235),
+    BackgroundColor3 = BG,
+    BorderSizePixel = 0,
+    Visible = false,
+    ClipsDescendants = true
+}, gui)
+
+round(main, 12)
+outline(main)
+
+-- HEADER
+local header = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 62),
+    BackgroundColor3 = PANEL,
+    BorderSizePixel = 0
+}, main)
+
+round(header, 12)
+
+create("Frame", {
+    Position = UDim2.new(0, 0, 1, -10),
+    Size = UDim2.new(1, 0, 0, 10),
+    BackgroundColor3 = PANEL,
+    BorderSizePixel = 0
+}, header)
+
+create("TextLabel", {
+    Position = UDim2.fromOffset(15, 9),
+    Size = UDim2.new(1, -70, 0, 25),
+    BackgroundTransparency = 1,
+    Text = "SIMPLE TELEPORT HUB",
+    TextColor3 = TEXT,
+    TextSize = 16,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, header)
+
+create("TextLabel", {
+    Position = UDim2.fromOffset(16, 34),
+    Size = UDim2.new(1, -70, 0, 16),
+    BackgroundTransparency = 1,
+    Text = "PLAYER CONTROL",
+    TextColor3 = MUTED,
+    TextSize = 10,
+    Font = Enum.Font.Gotham,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, header)
+
+local closeButton = create("TextButton", {
+    Size = UDim2.fromOffset(32, 32),
+    Position = UDim2.new(1, -42, 0, 15),
+    BackgroundColor3 = ROW,
+    BorderSizePixel = 0,
+    Text = "×",
+    TextColor3 = TEXT,
+    TextSize = 22,
+    Font = Enum.Font.Gotham,
+    AutoButtonColor = false
+}, header)
+
+round(closeButton, 8)
+
+-- SEARCH
+local search = create("TextBox", {
+    Position = UDim2.fromOffset(12, 74),
+    Size = UDim2.new(1, -24, 0, 38),
+    BackgroundColor3 = PANEL,
+    BorderSizePixel = 0,
+    PlaceholderText = "  Search players...",
+    PlaceholderColor3 = MUTED,
+    Text = "",
+    TextColor3 = TEXT,
+    TextSize = 13,
+    Font = Enum.Font.Gotham,
+    ClearTextOnFocus = false,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, main)
+
+round(search, 8)
+outline(search)
+
+local countLabel = create("TextLabel", {
+    Position = UDim2.fromOffset(15, 117),
+    Size = UDim2.new(1, -30, 0, 20),
+    BackgroundTransparency = 1,
+    Text = "PLAYERS: 0",
+    TextColor3 = MUTED,
+    TextSize = 10,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, main)
+
+-- PLAYER LIST
+local list = create("ScrollingFrame", {
+    Position = UDim2.fromOffset(12, 142),
+    Size = UDim2.new(1, -24, 1, -201),
+    BackgroundColor3 = PANEL,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = BORDER,
+    CanvasSize = UDim2.new(),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y
+}, main)
+
+round(list, 9)
+
+create("UIListLayout", {
+    Padding = UDim.new(0, 6),
+    SortOrder = Enum.SortOrder.LayoutOrder
+}, list)
+
+create("UIPadding", {
+    PaddingTop = UDim.new(0, 7),
+    PaddingBottom = UDim.new(0, 7),
+    PaddingLeft = UDim.new(0, 7),
+    PaddingRight = UDim.new(0, 7)
+}, list)
+
+-- FOOTER
+local refreshButton = makeButton(
+    main,
+    "REFRESH",
+    UDim2.new(0.5, -18, 0, 36),
+    UDim2.new(0, 12, 1, -45)
+)
+
+local backButton = makeButton(
+    main,
+    "TELEPORT BACK",
+    UDim2.new(0.5, -18, 0, 36),
+    UDim2.new(0.5, 6, 1, -45)
+)
+
+-- OPEN / CLOSE WITHOUT SHRINKING INTO A BOX
+local function openWindow()
+    if windowOpen then return end
+    windowOpen = true
+
+    openButton.Visible = false
+    main.Visible = true
+    main.Size = UDim2.fromOffset(390, 440)
+    main.Position = UDim2.new(0.5, -195, 0.5, -220)
+
+    animate(main, 0.18, {
+        Size = UDim2.fromOffset(420, 470),
+        Position = UDim2.new(0.5, -210, 0.5, -235)
+    })
+end
+
+local function closeWindow()
+    if not windowOpen then return end
+    windowOpen = false
+
+    -- Hide immediately; no tiny leftover frame.
+    main.Visible = false
+    main.Size = UDim2.fromOffset(420, 470)
+    main.Position = UDim2.new(0.5, -210, 0.5, -235)
+    openButton.Visible = true
+end
+
+connect(openButton.Activated, openWindow)
+connect(closeButton.Activated, closeWindow)
+
+makeDraggable(main, header)
+
+-- CHARACTER HELPERS
+local function getRoot(player)
+    local character = player.Character
+    if not character then return nil end
+    return character:FindFirstChild("HumanoidRootPart")
+end
+
+local function teleportTo(player)
+    if busy or player == LocalPlayer then return end
+
+    local myRoot = getRoot(LocalPlayer)
+    local targetRoot = getRoot(player)
+
+    if not myRoot or not targetRoot then
+        countLabel.Text = "CHARACTER NOT READY"
+        return
+    end
+
+    busy = true
+    lastPosition = myRoot.CFrame
+
+    myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 3)
+    countLabel.Text = "TELEPORTED TO: " .. player.Name
+
+    task.delay(0.35, function()
+        busy = false
+    end)
+end
+
+-- BUILD PLAYER LIST
+local function buildList()
+    for _, row in ipairs(rows) do
+        if row and row.Parent then
+            row:Destroy()
+        end
+    end
+    table.clear(rows)
+
+    local query = string.lower(search.Text)
+    local allPlayers = Players:GetPlayers()
+
+    table.sort(allPlayers, function(a, b)
+        local aPinned = pinned[a.UserId] == true
+        local bPinned = pinned[b.UserId] == true
+
+        if aPinned ~= bPinned then
+            return aPinned
+        end
+
+        return string.lower(a.Name) < string.lower(b.Name)
+    end)
+
+    local shown = 0
+
+    for _, player in ipairs(allPlayers) do
+        local matches = query == ""
+            or string.find(string.lower(player.Name), query, 1, true)
+            or string.find(string.lower(player.DisplayName), query, 1, true)
+
+        if matches then
+            shown += 1
+
+            local row = create("Frame", {
+                Name = "PlayerRow",
+                Size = UDim2.new(1, -2, 0, 56),
+                BackgroundColor3 = ROW,
+                BorderSizePixel = 0,
+                LayoutOrder = shown
+            }, list)
+
+            round(row, 8)
+            table.insert(rows, row)
+
+            local avatar = create("ImageLabel", {
+                Position = UDim2.fromOffset(6, 6),
+                Size = UDim2.fromOffset(44, 44),
+                BackgroundColor3 = PANEL,
+                BorderSizePixel = 0,
+                Image = ""
+            }, row)
+
+            round(avatar, 22)
+
+            task.spawn(function()
+                local success, image = pcall(function()
+                    return Players:GetUserThumbnailAsync(
+                        player.UserId,
+                        Enum.ThumbnailType.HeadShot,
+                        Enum.ThumbnailSize.Size100x100
+                    )
+                end)
+
+                if success and avatar.Parent then
+                    avatar.Image = image
+                end
+            end)
+
+            create("TextLabel", {
+                Position = UDim2.fromOffset(57, 8),
+                Size = UDim2.new(1, -166, 0, 20),
+                BackgroundTransparency = 1,
+                Text = player.DisplayName,
+                TextColor3 = TEXT,
+                TextSize = 12,
+                Font = Enum.Font.GothamBold,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextTruncate = Enum.TextTruncate.AtEnd
+            }, row)
+
+            create("TextLabel", {
+                Position = UDim2.fromOffset(57, 29),
+                Size = UDim2.new(1, -166, 0, 16),
+                BackgroundTransparency = 1,
+                Text = "@" .. player.Name,
+                TextColor3 = MUTED,
+                TextSize = 10,
+                Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextTruncate = Enum.TextTruncate.AtEnd
+            }, row)
+
+            local pin = create("TextButton", {
+                Position = UDim2.new(1, -99, 0.5, -16),
+                Size = UDim2.fromOffset(31, 32),
+                BackgroundColor3 = PANEL,
+                BorderSizePixel = 0,
+                Text = pinned[player.UserId] and "★" or "☆",
+                TextColor3 = pinned[player.UserId] and ACCENT or MUTED,
+                TextSize = 21,
+                Font = Enum.Font.GothamBold,
+                AutoButtonColor = false
+            }, row)
+
+            round(pin, 7)
+
+            connect(pin.Activated, function()
+                pinned[player.UserId] = not pinned[player.UserId]
+                buildList()
+            end)
+
+            local tp = create("TextButton", {
+                Position = UDim2.new(1, -62, 0.5, -14),
+                Size = UDim2.fromOffset(55, 28),
+                BackgroundColor3 = Color3.fromRGB(45, 45, 52),
+                BorderSizePixel = 0,
+                Text = "TP",
+                TextColor3 = TEXT,
+                TextSize = 11,
+                Font = Enum.Font.GothamBold,
+                AutoButtonColor = false
+            }, row)
+
+            round(tp, 7)
+
+            connect(tp.Activated, function()
+                if player.Parent == Players then
+                    teleportTo(player)
+                end
+            end)
+
+            connect(row.MouseEnter, function()
+                animate(row, 0.1, {BackgroundColor3 = HOVER})
+            end)
+
+            connect(row.MouseLeave, function()
+                animate(row, 0.1, {BackgroundColor3 = ROW})
+            end)
+        end
+    end
+
+    countLabel.Text = "PLAYERS: " .. #allPlayers .. "  |  SHOWING: " .. shown
+    if shown == 0 then
+        countLabel.Text = "NO PLAYERS FOUND"
+    end
+end
+
+-- SEARCH / REFRESH
+connect(search:GetPropertyChangedSignal("Text"), buildList)
+
+connect(refreshButton.Activated, function()
+    refreshButton.Text = "LOADING..."
+    buildList()
+
+    task.delay(0.3, function()
+        if refreshButton.Parent then
+            refreshButton.Text = "REFRESH"
+        end
+    end)
+end)
+
+-- TELEPORT BACK
+connect(backButton.Activated, function()
+    if busy then return end
+
+    local myRoot = getRoot(LocalPlayer)
+    if not myRoot or not lastPosition then
+        countLabel.Text = "NO PREVIOUS LOCATION"
+        return
+    end
+
+    busy = true
+
+    local destination = lastPosition
+    lastPosition = myRoot.CFrame
+    myRoot.CFrame = destination
+
+    countLabel.Text = "RETURNED TO LAST LOCATION"
+
+    task.delay(0.35, function()
+        busy = false
+    end)
+end)
+
+-- PLAYER JOIN / LEAVE
+connect(Players.PlayerAdded, buildList)
+
+connect(Players.PlayerRemoving, function(player)
+    pinned[player.UserId] = nil
+    buildList()
+end)
+
+-- INITIAL STATE
+buildList()
+main.Visible = false
+openButton.Visible = true
+
+print("Simple Teleport Hub - Clean Black Edition loaded")
