@@ -1,568 +1,464 @@
-
---// LocalScript: StarterPlayer > StarterPlayerScripts
-
+-- SIMPLE TELEPORT HUB
+-- ONE LOCALSCRIPT
+-- StarterPlayer > StarterPlayerScripts
+-- Loop TP folgt dem ausgewählten Spieler mit einem festen Abstand.
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-
--- Remove previous copy
-local oldGui = PlayerGui:FindFirstChild("SimpleTeleportHub")
-if oldGui then
-    oldGui:Destroy()
-end
-
--- SETTINGS
-local BG = Color3.fromRGB(12, 12, 14)
-local PANEL = Color3.fromRGB(20, 20, 23)
-local ROW = Color3.fromRGB(27, 27, 31)
-local HOVER = Color3.fromRGB(38, 38, 43)
-local TEXT = Color3.fromRGB(240, 240, 243)
-local MUTED = Color3.fromRGB(150, 150, 160)
-local BORDER = Color3.fromRGB(55, 55, 62)
-local ACCENT = Color3.fromRGB(210, 210, 220)
-
-local pinned = {}
-local lastPosition = nil
-local busy = false
-local windowOpen = false
-local rows = {}
-local connections = {}
-
-local function connect(signal, callback)
-    local connection = signal:Connect(callback)
-    table.insert(connections, connection)
-    return connection
-end
-
-local function create(className, props, parent)
-    local obj = Instance.new(className)
-    for key, value in pairs(props or {}) do
-        obj[key] = value
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Me = Players.LocalPlayer
+local PlayerGui = Me:WaitForChild("PlayerGui")
+local old = PlayerGui:FindFirstChild("SimpleTeleportHub")
+if old then old:Destroy() end
+local favorites = {}
+local friends = {}
+local selectedPlayer
+local previousCFrame
+local loopActive = false
+local loopConnection
+local FOLLOW_OFFSET = CFrame.new(3, 0, 0)
+local function make(class, props, parent)
+    local obj = Instance.new(class)
+    for k, v in pairs(props) do
+        obj[k] = v
     end
     obj.Parent = parent
     return obj
 end
-
 local function round(obj, radius)
-    create("UICorner", {
-        CornerRadius = UDim.new(0, radius or 9)
+    make("UICorner", {
+        CornerRadius = UDim.new(0, radius)
     }, obj)
 end
-
-local function outline(obj, color)
-    return create("UIStroke", {
-        Color = color or BORDER,
-        Thickness = 1,
-        Transparency = 0
+local function outline(obj)
+    make("UIStroke", {
+        Color = Color3.fromRGB(65, 65, 65),
+        Thickness = 1
     }, obj)
 end
-
-local function animate(obj, duration, props)
-    local t = TweenService:Create(
-        obj,
-        TweenInfo.new(duration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-        props
-    )
-    t:Play()
-    return t
-end
-
-local function makeButton(parent, text, size, position)
-    local button = create("TextButton", {
-        Size = size,
-        Position = position,
-        BackgroundColor3 = PANEL,
-        BorderSizePixel = 0,
-        Text = text,
-        TextColor3 = TEXT,
-        TextSize = 12,
-        Font = Enum.Font.GothamSemibold,
-        AutoButtonColor = false
-    }, parent)
-
-    round(button, 8)
-    outline(button)
-
-    connect(button.MouseEnter, function()
-        animate(button, 0.12, {BackgroundColor3 = HOVER})
-    end)
-
-    connect(button.MouseLeave, function()
-        animate(button, 0.12, {BackgroundColor3 = PANEL})
-    end)
-
-    return button
-end
-
--- SCREEN GUI
-local gui = create("ScreenGui", {
+local gui = make("ScreenGui", {
     Name = "SimpleTeleportHub",
     ResetOnSpawn = false,
-    IgnoreGuiInset = true,
-    ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    IgnoreGuiInset = true
 }, PlayerGui)
-
--- DRAG FUNCTION
-local function makeDraggable(object, handle)
-    local dragging = false
-    local dragStart
-    local startPosition
-    local activeInput
-
-    connect(handle.InputBegan, function(input)
+local function draggable(frame, handle)
+    local active
+    local startPos
+    local originalPos
+    handle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-
-            dragging = true
-            dragStart = input.Position
-            startPosition = object.Position
-
-            local endConnection
-            endConnection = input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                    if endConnection then
-                        endConnection:Disconnect()
-                    end
-                end
-            end)
+        or input.UserInputType == Enum.UserInputType.Touch then
+            active = true
+            startPos = input.Position
+            originalPos = frame.Position
         end
     end)
-
-    connect(handle.InputChanged, function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch then
-            activeInput = input
-        end
-    end)
-
-    connect(UserInputService.InputChanged, function(input)
-        if dragging and input == activeInput then
-            local delta = input.Position - dragStart
-            object.Position = UDim2.new(
-                startPosition.X.Scale,
-                startPosition.X.Offset + delta.X,
-                startPosition.Y.Scale,
-                startPosition.Y.Offset + delta.Y
+    UIS.InputChanged:Connect(function(input)
+        if active and (
+            input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch
+        ) then
+            local delta = input.Position - startPos
+            frame.Position = UDim2.new(
+                originalPos.X.Scale,
+                originalPos.X.Offset + delta.X,
+                originalPos.Y.Scale,
+                originalPos.Y.Offset + delta.Y
             )
         end
     end)
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            active = false
+        end
+    end)
 end
-
--- OPEN BUTTON (visible when the menu is closed)
-local openButton = create("TextButton", {
-    Name = "OpenButton",
-    Size = UDim2.fromOffset(88, 38),
-    Position = UDim2.new(0, 22, 0.5, -19),
-    BackgroundColor3 = BG,
-    BorderSizePixel = 0,
-    Text = "OPEN",
-    TextColor3 = TEXT,
-    TextSize = 13,
+local open = make("TextButton", {
+    Size = UDim2.fromOffset(105, 38),
+    Position = UDim2.new(0, 18, 0.5, -19),
+    BackgroundColor3 = Color3.fromRGB(18, 18, 18),
+    Text = "OPEN  +",
+    TextColor3 = Color3.new(1, 1, 1),
     Font = Enum.Font.GothamBold,
-    AutoButtonColor = false,
-    Visible = true
+    TextSize = 14
 }, gui)
-
-round(openButton, 9)
-outline(openButton)
-makeDraggable(openButton, openButton)
-
--- MAIN WINDOW
-local main = create("Frame", {
-    Name = "MainWindow",
-    Size = UDim2.fromOffset(420, 470),
-    Position = UDim2.new(0.5, -210, 0.5, -235),
-    BackgroundColor3 = BG,
+round(open, 8)
+outline(open)
+draggable(open, open)
+local main = make("Frame", {
+    Size = UDim2.fromOffset(340, 490),
+    Position = UDim2.new(0.5, -170, 0.5, -245),
+    BackgroundColor3 = Color3.fromRGB(12, 12, 12),
     BorderSizePixel = 0,
-    Visible = false,
-    ClipsDescendants = true
+    Visible = false
 }, gui)
-
 round(main, 12)
 outline(main)
-
--- HEADER
-local header = create("Frame", {
-    Size = UDim2.new(1, 0, 0, 62),
-    BackgroundColor3 = PANEL,
+local header = make("Frame", {
+    Size = UDim2.new(1, 0, 0, 46),
+    BackgroundColor3 = Color3.fromRGB(23, 23, 23),
     BorderSizePixel = 0
 }, main)
-
 round(header, 12)
-
-create("Frame", {
-    Position = UDim2.new(0, 0, 1, -10),
-    Size = UDim2.new(1, 0, 0, 10),
-    BackgroundColor3 = PANEL,
-    BorderSizePixel = 0
-}, header)
-
-create("TextLabel", {
-    Position = UDim2.fromOffset(15, 9),
-    Size = UDim2.new(1, -70, 0, 25),
+draggable(main, header)
+make("TextLabel", {
+    Size = UDim2.new(1, -55, 1, 0),
+    Position = UDim2.fromOffset(14, 0),
     BackgroundTransparency = 1,
     Text = "SIMPLE TELEPORT HUB",
-    TextColor3 = TEXT,
-    TextSize = 16,
+    TextColor3 = Color3.new(1, 1, 1),
     Font = Enum.Font.GothamBold,
+    TextSize = 14,
     TextXAlignment = Enum.TextXAlignment.Left
 }, header)
-
-create("TextLabel", {
-    Position = UDim2.fromOffset(16, 34),
-    Size = UDim2.new(1, -70, 0, 16),
-    BackgroundTransparency = 1,
-    Text = "PLAYER CONTROL",
-    TextColor3 = MUTED,
-    TextSize = 10,
-    Font = Enum.Font.Gotham,
-    TextXAlignment = Enum.TextXAlignment.Left
+local close = make("TextButton", {
+    Size = UDim2.fromOffset(32, 30),
+    Position = UDim2.new(1, -38, 0, 8),
+    BackgroundColor3 = Color3.fromRGB(42, 42, 42),
+    Text = "X",
+    TextColor3 = Color3.new(1, 1, 1),
+    Font = Enum.Font.GothamBold,
+    TextSize = 14
 }, header)
-
-local closeButton = create("TextButton", {
-    Size = UDim2.fromOffset(32, 32),
-    Position = UDim2.new(1, -42, 0, 15),
-    BackgroundColor3 = ROW,
-    BorderSizePixel = 0,
-    Text = "×",
-    TextColor3 = TEXT,
-    TextSize = 22,
-    Font = Enum.Font.Gotham,
-    AutoButtonColor = false
-}, header)
-
-round(closeButton, 8)
-
--- SEARCH
-local search = create("TextBox", {
-    Position = UDim2.fromOffset(12, 74),
-    Size = UDim2.new(1, -24, 0, 38),
-    BackgroundColor3 = PANEL,
-    BorderSizePixel = 0,
-    PlaceholderText = "  Search players...",
-    PlaceholderColor3 = MUTED,
+round(close, 7)
+local search = make("TextBox", {
+    Size = UDim2.new(1, -24, 0, 34),
+    Position = UDim2.fromOffset(12, 56),
+    BackgroundColor3 = Color3.fromRGB(28, 28, 28),
+    PlaceholderText = "Search players...",
+    PlaceholderColor3 = Color3.fromRGB(145, 145, 145),
     Text = "",
-    TextColor3 = TEXT,
-    TextSize = 13,
+    TextColor3 = Color3.new(1, 1, 1),
     Font = Enum.Font.Gotham,
-    ClearTextOnFocus = false,
-    TextXAlignment = Enum.TextXAlignment.Left
+    TextSize = 13,
+    ClearTextOnFocus = false
 }, main)
-
-round(search, 8)
-outline(search)
-
-local countLabel = create("TextLabel", {
-    Position = UDim2.fromOffset(15, 117),
-    Size = UDim2.new(1, -30, 0, 20),
-    BackgroundTransparency = 1,
-    Text = "PLAYERS: 0",
-    TextColor3 = MUTED,
-    TextSize = 10,
-    Font = Enum.Font.GothamBold,
-    TextXAlignment = Enum.TextXAlignment.Left
-}, main)
-
--- PLAYER LIST
-local list = create("ScrollingFrame", {
-    Position = UDim2.fromOffset(12, 142),
-    Size = UDim2.new(1, -24, 1, -201),
-    BackgroundColor3 = PANEL,
+round(search, 7)
+local list = make("ScrollingFrame", {
+    Size = UDim2.new(1, -24, 0, 245),
+    Position = UDim2.fromOffset(12, 98),
+    BackgroundColor3 = Color3.fromRGB(18, 18, 18),
     BorderSizePixel = 0,
     ScrollBarThickness = 4,
-    ScrollBarImageColor3 = BORDER,
-    CanvasSize = UDim2.new(),
-    AutomaticCanvasSize = Enum.AutomaticSize.Y
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    CanvasSize = UDim2.new()
 }, main)
-
-round(list, 9)
-
-create("UIListLayout", {
-    Padding = UDim.new(0, 6),
+round(list, 8)
+make("UIPadding", {
+    PaddingTop = UDim.new(0, 6),
+    PaddingBottom = UDim.new(0, 6),
+    PaddingLeft = UDim.new(0, 6),
+    PaddingRight = UDim.new(0, 6)
+}, list)
+make("UIListLayout", {
+    Padding = UDim.new(0, 5),
     SortOrder = Enum.SortOrder.LayoutOrder
 }, list)
-
-create("UIPadding", {
-    PaddingTop = UDim.new(0, 7),
-    PaddingBottom = UDim.new(0, 7),
-    PaddingLeft = UDim.new(0, 7),
-    PaddingRight = UDim.new(0, 7)
-}, list)
-
--- FOOTER
-local refreshButton = makeButton(
-    main,
-    "REFRESH",
-    UDim2.new(0.5, -18, 0, 36),
-    UDim2.new(0, 12, 1, -45)
+local status = make("TextLabel", {
+    Size = UDim2.new(1, -24, 0, 24),
+    Position = UDim2.fromOffset(12, 348),
+    BackgroundTransparency = 1,
+    Text = "Select a player",
+    TextColor3 = Color3.fromRGB(190, 190, 190),
+    Font = Enum.Font.Gotham,
+    TextSize = 12,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, main)
+local function button(text, pos, size)
+    local b = make("TextButton", {
+        Size = size,
+        Position = pos,
+        BackgroundColor3 = Color3.fromRGB(32, 32, 32),
+        Text = text,
+        TextColor3 = Color3.new(1, 1, 1),
+        Font = Enum.Font.GothamBold,
+        TextSize = 12
+    }, main)
+    round(b, 7)
+    outline(b)
+    return b
+end
+local tp = button(
+    "TELEPORT",
+    UDim2.fromOffset(12, 378),
+    UDim2.new(0.5, -18, 0, 30)
 )
-
-local backButton = makeButton(
-    main,
-    "TELEPORT BACK",
-    UDim2.new(0.5, -18, 0, 36),
-    UDim2.new(0.5, 6, 1, -45)
+local back = button(
+    "GO BACK",
+    UDim2.new(0.5, 6, 0, 378),
+    UDim2.new(0.5, -18, 0, 30)
 )
-
--- OPEN / CLOSE WITHOUT SHRINKING INTO A BOX
-local function openWindow()
-    if windowOpen then return end
-    windowOpen = true
-
-    openButton.Visible = false
-    main.Visible = true
-    main.Size = UDim2.fromOffset(390, 440)
-    main.Position = UDim2.new(0.5, -195, 0.5, -220)
-
-    animate(main, 0.18, {
-        Size = UDim2.fromOffset(420, 470),
-        Position = UDim2.new(0.5, -210, 0.5, -235)
-    })
+local loop = button(
+    "START FOLLOW TP",
+    UDim2.fromOffset(12, 414),
+    UDim2.new(1, -24, 0, 30)
+)
+local refresh = button(
+    "REFRESH PLAYERS",
+    UDim2.fromOffset(12, 450),
+    UDim2.new(1, -24, 0, 26)
+)
+local rebuilding = false
+local rebuildPending = false
+local function stopLoop()
+    loopActive = false
+    if loopConnection then
+        loopConnection:Disconnect()
+        loopConnection = nil
+    end
+    loop.Text = "START FOLLOW TP"
 end
-
-local function closeWindow()
-    if not windowOpen then return end
-    windowOpen = false
-
-    -- Hide immediately; no tiny leftover frame.
-    main.Visible = false
-    main.Size = UDim2.fromOffset(420, 470)
-    main.Position = UDim2.new(0.5, -210, 0.5, -235)
-    openButton.Visible = true
+local function getRoots(player)
+    local character = Me.Character
+    local targetCharacter = player and player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local targetRoot = targetCharacter
+        and targetCharacter:FindFirstChild("HumanoidRootPart")
+    return root, targetRoot
 end
-
-connect(openButton.Activated, openWindow)
-connect(closeButton.Activated, closeWindow)
-
-makeDraggable(main, header)
-
--- CHARACTER HELPERS
-local function getRoot(player)
-    local character = player.Character
-    if not character then return nil end
-    return character:FindFirstChild("HumanoidRootPart")
+local function teleportOnce(player)
+    local root, targetRoot = getRoots(player)
+    if not root or not targetRoot then
+        status.Text = "Character not available"
+        return false
+    end
+    if not previousCFrame then
+        previousCFrame = root.CFrame
+    end
+    root.CFrame = targetRoot.CFrame * FOLLOW_OFFSET
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+    return true
 end
-
-local function teleportTo(player)
-    if busy or player == LocalPlayer then return end
-
-    local myRoot = getRoot(LocalPlayer)
-    local targetRoot = getRoot(player)
-
-    if not myRoot or not targetRoot then
-        countLabel.Text = "CHARACTER NOT READY"
+local function startFollow(player)
+    stopLoop()
+    if not player or player.Parent ~= Players then
+        status.Text = "Player not available"
         return
     end
-
-    busy = true
-    lastPosition = myRoot.CFrame
-
-    myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 3)
-    countLabel.Text = "TELEPORTED TO: " .. player.Name
-
-    task.delay(0.35, function()
-        busy = false
+    local root, targetRoot = getRoots(player)
+    if not root or not targetRoot then
+        status.Text = "Character not available"
+        return
+    end
+    if not previousCFrame then
+        previousCFrame = root.CFrame
+    end
+    loopActive = true
+    loop.Text = "STOP FOLLOW TP"
+    status.Text = "Following " .. player.Name
+    loopConnection = RunService.Heartbeat:Connect(function()
+        if not loopActive then
+            return
+        end
+        if not selectedPlayer
+        or selectedPlayer ~= player
+        or player.Parent ~= Players then
+            stopLoop()
+            status.Text = "Follow stopped"
+            return
+        end
+        local currentRoot, currentTargetRoot = getRoots(player)
+        if not currentRoot or not currentTargetRoot then
+            status.Text = "Waiting for character..."
+            return
+        end
+        -- Keeps the local character attached to the target.
+        currentRoot.CFrame = currentTargetRoot.CFrame * FOLLOW_OFFSET
+        currentRoot.AssemblyLinearVelocity = Vector3.zero
+        currentRoot.AssemblyAngularVelocity = Vector3.zero
     end)
 end
-
--- BUILD PLAYER LIST
-local function buildList()
-    for _, row in ipairs(rows) do
-        if row and row.Parent then
-            row:Destroy()
+local function rebuild()
+    if rebuilding then
+        rebuildPending = true
+        return
+    end
+    rebuilding = true
+    for _, child in ipairs(list:GetChildren()) do
+        if child:IsA("Frame") then
+            child:Destroy()
         end
     end
-    table.clear(rows)
-
     local query = string.lower(search.Text)
-    local allPlayers = Players:GetPlayers()
-
-    table.sort(allPlayers, function(a, b)
-        local aPinned = pinned[a.UserId] == true
-        local bPinned = pinned[b.UserId] == true
-
-        if aPinned ~= bPinned then
-            return aPinned
+    local candidates = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= Me then
+            if friends[player.UserId] == nil then
+                friends[player.UserId] = false
+                task.spawn(function()
+                    local ok, result = pcall(function()
+                        return Me:IsFriendsWith(player.UserId)
+                    end)
+                    if player.Parent == Players then
+                        friends[player.UserId] = ok and result == true
+                        task.defer(rebuild)
+                    end
+                end)
+            end
+            if string.find(string.lower(player.Name), query, 1, true)
+            or string.find(string.lower(player.DisplayName), query, 1, true) then
+                table.insert(candidates, player)
+            end
         end
-
+    end
+    local function rank(player)
+        if favorites[player.UserId] then
+            return 1
+        elseif friends[player.UserId] then
+            return 2
+        else
+            return 3
+        end
+    end
+    table.sort(candidates, function(a, b)
+        if rank(a) ~= rank(b) then
+            return rank(a) < rank(b)
+        end
         return string.lower(a.Name) < string.lower(b.Name)
     end)
-
-    local shown = 0
-
-    for _, player in ipairs(allPlayers) do
-        local matches = query == ""
-            or string.find(string.lower(player.Name), query, 1, true)
-            or string.find(string.lower(player.DisplayName), query, 1, true)
-
-        if matches then
-            shown += 1
-
-            local row = create("Frame", {
-                Name = "PlayerRow",
-                Size = UDim2.new(1, -2, 0, 56),
-                BackgroundColor3 = ROW,
-                BorderSizePixel = 0,
-                LayoutOrder = shown
-            }, list)
-
-            round(row, 8)
-            table.insert(rows, row)
-
-            local avatar = create("ImageLabel", {
-                Position = UDim2.fromOffset(6, 6),
-                Size = UDim2.fromOffset(44, 44),
-                BackgroundColor3 = PANEL,
-                BorderSizePixel = 0,
-                Image = ""
-            }, row)
-
-            round(avatar, 22)
-
-            task.spawn(function()
-                local success, image = pcall(function()
-                    return Players:GetUserThumbnailAsync(
-                        player.UserId,
-                        Enum.ThumbnailType.HeadShot,
-                        Enum.ThumbnailSize.Size100x100
-                    )
-                end)
-
-                if success and avatar.Parent then
-                    avatar.Image = image
-                end
+    for index, player in ipairs(candidates) do
+        local fav = favorites[player.UserId] == true
+        local friend = friends[player.UserId] == true
+        local row = make("Frame", {
+            Size = UDim2.new(1, -2, 0, 45),
+            BackgroundColor3 = selectedPlayer == player
+                and Color3.fromRGB(48, 48, 48)
+                or Color3.fromRGB(29, 29, 29),
+            BorderSizePixel = 0,
+            LayoutOrder = index
+        }, list)
+        round(row, 7)
+        local avatar = make("ImageLabel", {
+            Size = UDim2.fromOffset(32, 32),
+            Position = UDim2.fromOffset(6, 6),
+            BackgroundTransparency = 1,
+            Image = ""
+        }, row)
+        round(avatar, 16)
+        task.spawn(function()
+            local ok, image = pcall(function()
+                return Players:GetUserThumbnailAsync(
+                    player.UserId,
+                    Enum.ThumbnailType.HeadShot,
+                    Enum.ThumbnailSize.Size48x48
+                )
             end)
-
-            create("TextLabel", {
-                Position = UDim2.fromOffset(57, 8),
-                Size = UDim2.new(1, -166, 0, 20),
-                BackgroundTransparency = 1,
-                Text = player.DisplayName,
-                TextColor3 = TEXT,
-                TextSize = 12,
-                Font = Enum.Font.GothamBold,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                TextTruncate = Enum.TextTruncate.AtEnd
-            }, row)
-
-            create("TextLabel", {
-                Position = UDim2.fromOffset(57, 29),
-                Size = UDim2.new(1, -166, 0, 16),
-                BackgroundTransparency = 1,
-                Text = "@" .. player.Name,
-                TextColor3 = MUTED,
-                TextSize = 10,
-                Font = Enum.Font.Gotham,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                TextTruncate = Enum.TextTruncate.AtEnd
-            }, row)
-
-            local pin = create("TextButton", {
-                Position = UDim2.new(1, -99, 0.5, -16),
-                Size = UDim2.fromOffset(31, 32),
-                BackgroundColor3 = PANEL,
-                BorderSizePixel = 0,
-                Text = pinned[player.UserId] and "★" or "☆",
-                TextColor3 = pinned[player.UserId] and ACCENT or MUTED,
-                TextSize = 21,
-                Font = Enum.Font.GothamBold,
-                AutoButtonColor = false
-            }, row)
-
-            round(pin, 7)
-
-            connect(pin.Activated, function()
-                pinned[player.UserId] = not pinned[player.UserId]
-                buildList()
-            end)
-
-            local tp = create("TextButton", {
-                Position = UDim2.new(1, -62, 0.5, -14),
-                Size = UDim2.fromOffset(55, 28),
-                BackgroundColor3 = Color3.fromRGB(45, 45, 52),
-                BorderSizePixel = 0,
-                Text = "TP",
-                TextColor3 = TEXT,
-                TextSize = 11,
-                Font = Enum.Font.GothamBold,
-                AutoButtonColor = false
-            }, row)
-
-            round(tp, 7)
-
-            connect(tp.Activated, function()
-                if player.Parent == Players then
-                    teleportTo(player)
-                end
-            end)
-
-            connect(row.MouseEnter, function()
-                animate(row, 0.1, {BackgroundColor3 = HOVER})
-            end)
-
-            connect(row.MouseLeave, function()
-                animate(row, 0.1, {BackgroundColor3 = ROW})
-            end)
-        end
+            if ok and avatar.Parent then
+                avatar.Image = image
+            end
+        end)
+        local prefix = fav and "★ " or (friend and "FRIEND • " or "")
+        make("TextLabel", {
+            Size = UDim2.new(1, -100, 1, 0),
+            Position = UDim2.fromOffset(44, 0),
+            BackgroundTransparency = 1,
+            Text = prefix .. player.DisplayName,
+            TextColor3 = friend
+                and Color3.fromRGB(140, 210, 160)
+                or Color3.new(1, 1, 1),
+            TextSize = 11,
+            Font = Enum.Font.Gotham,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd
+        }, row)
+        local star = make("TextButton", {
+            Size = UDim2.fromOffset(34, 34),
+            Position = UDim2.new(1, -38, 0, 5),
+            BackgroundTransparency = 1,
+            Text = fav and "★" or "☆",
+            TextColor3 = fav
+                and Color3.fromRGB(255, 205, 65)
+                or Color3.fromRGB(180, 180, 180),
+            TextSize = 22,
+            Font = Enum.Font.GothamBold,
+            ZIndex = 4
+        }, row)
+        local selectButton = make("TextButton", {
+            Size = UDim2.new(1, -40, 1, 0),
+            BackgroundTransparency = 1,
+            Text = "",
+            ZIndex = 2
+        }, row)
+        star.Activated:Connect(function()
+            favorites[player.UserId] = not favorites[player.UserId]
+            rebuild()
+        end)
+        selectButton.Activated:Connect(function()
+            selectedPlayer = player
+            status.Text = "Selected: " .. player.Name
+            rebuild()
+        end)
     end
-
-    countLabel.Text = "PLAYERS: " .. #allPlayers .. "  |  SHOWING: " .. shown
-    if shown == 0 then
-        countLabel.Text = "NO PLAYERS FOUND"
+    rebuilding = false
+    if rebuildPending then
+        rebuildPending = false
+        task.defer(rebuild)
     end
 end
-
--- SEARCH / REFRESH
-connect(search:GetPropertyChangedSignal("Text"), buildList)
-
-connect(refreshButton.Activated, function()
-    refreshButton.Text = "LOADING..."
-    buildList()
-
-    task.delay(0.3, function()
-        if refreshButton.Parent then
-            refreshButton.Text = "REFRESH"
-        end
-    end)
-end)
-
--- TELEPORT BACK
-connect(backButton.Activated, function()
-    if busy then return end
-
-    local myRoot = getRoot(LocalPlayer)
-    if not myRoot or not lastPosition then
-        countLabel.Text = "NO PREVIOUS LOCATION"
+tp.Activated:Connect(function()
+    if not selectedPlayer then
+        status.Text = "Select a player first"
         return
     end
-
-    busy = true
-
-    local destination = lastPosition
-    lastPosition = myRoot.CFrame
-    myRoot.CFrame = destination
-
-    countLabel.Text = "RETURNED TO LAST LOCATION"
-
-    task.delay(0.35, function()
-        busy = false
-    end)
+    if teleportOnce(selectedPlayer) then
+        status.Text = "Teleported once locally"
+    end
 end)
-
--- PLAYER JOIN / LEAVE
-connect(Players.PlayerAdded, buildList)
-
-connect(Players.PlayerRemoving, function(player)
-    pinned[player.UserId] = nil
-    buildList()
+loop.Activated:Connect(function()
+    if loopActive then
+        stopLoop()
+        status.Text = "Follow stopped"
+        return
+    end
+    if not selectedPlayer then
+        status.Text = "Select a player first"
+        return
+    end
+    startFollow(selectedPlayer)
 end)
-
--- INITIAL STATE
-buildList()
-main.Visible = false
-openButton.Visible = true
-
+back.Activated:Connect(function()
+    stopLoop()
+    local root = Me.Character
+        and Me.Character:FindFirstChild("HumanoidRootPart")
+    if root and previousCFrame then
+        root.CFrame = previousCFrame
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        previousCFrame = nil
+        status.Text = "Returned to previous location"
+    else
+        status.Text = "No saved location"
+    end
+end)
+open.Activated:Connect(function()
+    main.Visible = not main.Visible
+end)
+close.Activated:Connect(function()
+    main.Visible = false
+end)
+search:GetPropertyChangedSignal("Text"):Connect(rebuild)
+refresh.Activated:Connect(rebuild)
+Players.PlayerAdded:Connect(function(player)
+    friends[player.UserId] = nil
+    task.defer(rebuild)
+end)
+Players.PlayerRemoving:Connect(function(player)
+    friends[player.UserId] = nil
+    if selectedPlayer == player then
+        stopLoop()
+        selectedPlayer = nil
+        status.Text = "Selected player left"
+    end
+    task.defer(rebuild)
+end)
+Me.CharacterAdded:Connect(function()
+    if loopActive then
+        task.wait(0.5)
+        if selectedPlayer then
+            startFollow(selectedPlayer)
+        end
+    end
+end)
+rebuild()
+print("SIMPLE TELEPORT HUB loaded")
