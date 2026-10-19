@@ -1,0 +1,207 @@
+
+local main = Instance.new("ScreenGui")
+local Frame = Instance.new("Frame")
+local up = Instance.new("TextButton")
+local down = Instance.new("TextButton")
+local forward = Instance.new("TextButton")
+local minus = Instance.new("TextButton")
+local speedLabel = Instance.new("TextLabel")
+local plus = Instance.new("TextButton")
+local closebutton = Instance.new("TextButton")
+
+main.Name = "main"
+main.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+main.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+main.ResetOnSpawn = false
+
+-- Hauptfenster
+Frame.Parent = main
+Frame.BackgroundColor3 = Color3.fromRGB(163, 255, 137)
+Frame.BorderColor3 = Color3.fromRGB(103, 221, 213)
+Frame.Position = UDim2.new(0.1, 0, 0.38, 0)
+Frame.Size = UDim2.new(0, 150, 0, 155)
+Frame.Active = true
+Frame.Draggable = true
+
+-- UP
+up.Name = "up"
+up.Parent = Frame
+up.BackgroundColor3 = Color3.fromRGB(79, 255, 152)
+up.Position = UDim2.new(0, 5, 0, 5)
+up.Size = UDim2.new(0, 67, 0, 30)
+up.Font = Enum.Font.SourceSans
+up.Text = "UP"
+up.TextColor3 = Color3.fromRGB(0, 0, 0)
+up.TextSize = 14
+
+-- DOWN
+down.Name = "down"
+down.Parent = Frame
+down.BackgroundColor3 = Color3.fromRGB(215, 255, 121)
+down.Position = UDim2.new(0, 78, 0, 5)
+down.Size = UDim2.new(0, 67, 0, 30)
+down.Font = Enum.Font.SourceSans
+down.Text = "DOWN"
+down.TextColor3 = Color3.fromRGB(0, 0, 0)
+down.TextSize = 14
+
+-- FORWARD
+forward.Name = "forward"
+forward.Parent = Frame
+forward.BackgroundColor3 = Color3.fromRGB(133, 145, 255)
+forward.Position = UDim2.new(0, 5, 0, 40)
+forward.Size = UDim2.new(0, 140, 0, 30)
+forward.Font = Enum.Font.SourceSans
+forward.Text = "FORWARD"
+forward.TextColor3 = Color3.fromRGB(0, 0, 0)
+forward.TextSize = 14
+
+-- Geschwindigkeit verringern
+minus.Name = "minus"
+minus.Parent = Frame
+minus.BackgroundColor3 = Color3.fromRGB(123, 255, 247)
+minus.Position = UDim2.new(0, 5, 0, 75)
+minus.Size = UDim2.new(0, 35, 0, 30)
+minus.Font = Enum.Font.SourceSans
+minus.Text = "-"
+minus.TextColor3 = Color3.fromRGB(0, 0, 0)
+minus.TextSize = 20
+
+-- Geschwindigkeitsanzeige
+speedLabel.Name = "speedLabel"
+speedLabel.Parent = Frame
+speedLabel.BackgroundColor3 = Color3.fromRGB(255, 170, 0)
+speedLabel.Position = UDim2.new(0, 42, 0, 75)
+speedLabel.Size = UDim2.new(0, 66, 0, 30)
+speedLabel.Font = Enum.Font.SourceSans
+speedLabel.Text = "Speed: 1"
+speedLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
+speedLabel.TextSize = 14
+
+-- Geschwindigkeit erhöhen
+plus.Name = "plus"
+plus.Parent = Frame
+plus.BackgroundColor3 = Color3.fromRGB(133, 145, 255)
+plus.Position = UDim2.new(0, 110, 0, 75)
+plus.Size = UDim2.new(0, 35, 0, 30)
+plus.Font = Enum.Font.SourceSans
+plus.Text = "+"
+plus.TextColor3 = Color3.fromRGB(0, 0, 0)
+plus.TextSize = 20
+
+-- X / SCHLIESSEN
+closebutton.Name = "Close"
+closebutton.Parent = Frame
+closebutton.BackgroundColor3 = Color3.fromRGB(225, 25, 0)
+closebutton.Position = UDim2.new(0, 5, 0, 115)
+closebutton.Size = UDim2.new(0, 140, 0, 30)
+closebutton.Font = Enum.Font.SourceSans
+closebutton.Text = "X"
+closebutton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closebutton.TextSize = 20
+
+-- Geschwindigkeit
+local moveSpeed = 1
+local minimumSpeed = 1
+local maximumSpeed = inf
+
+local function updateSpeedLabel()
+	speedLabel.Text = "Speed: " .. moveSpeed
+end
+
+plus.MouseButton1Click:Connect(function()
+	if moveSpeed < maximumSpeed then
+		moveSpeed += 1
+		updateSpeedLabel()
+	end
+end)
+
+minus.MouseButton1Click:Connect(function()
+	if moveSpeed > minimumSpeed then
+		moveSpeed -= 1
+		updateSpeedLabel()
+	end
+end)
+
+-- UP
+local tis
+
+up.MouseButton1Down:Connect(function()
+	tis = up.MouseEnter:Connect(function()
+		while tis do
+			task.wait()
+
+			local char = game.Players.LocalPlayer.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+
+			if root then
+				root.CFrame = root.CFrame * CFrame.new(0, moveSpeed, 0)
+			end
+		end
+	end)
+end)
+
+up.MouseLeave:Connect(function()
+	if tis then
+		tis:Disconnect()
+		tis = nil
+	end
+end)
+
+-- DOWN
+local dis
+
+down.MouseButton1Down:Connect(function()
+	dis = down.MouseEnter:Connect(function()
+		while dis do
+			task.wait()
+
+			local char = game.Players.LocalPlayer.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart")
+
+			if root then
+				root.CFrame = root.CFrame * CFrame.new(0, -moveSpeed, 0)
+			end
+		end
+	end)
+end)
+
+down.MouseLeave:Connect(function()
+	if dis then
+		dis:Disconnect()
+		dis = nil
+	end
+end)
+
+-- FORWARD
+local movingForward = false
+
+forward.MouseButton1Down:Connect(function()
+	movingForward = true
+
+	while movingForward do
+		task.wait()
+
+		local char = game.Players.LocalPlayer.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local camera = workspace.CurrentCamera
+
+		if root and camera then
+			root.CFrame = root.CFrame + camera.CFrame.LookVector * moveSpeed
+		end
+	end
+end)
+
+forward.MouseButton1Up:Connect(function()
+	movingForward = false
+end)
+
+forward.MouseLeave:Connect(function()
+	movingForward = false
+end)
+
+-- X / SCHLIESSEN
+closebutton.MouseButton1Click:Connect(function()
+	main:Destroy()
+end)
+
