@@ -1,4 +1,4 @@
---// SIMPLE TELEPORT HUB - CLEAN BLACK EDITION
+
 --// LocalScript: StarterPlayer > StarterPlayerScripts
 
 local Players = game:GetService("Players")
@@ -566,4 +566,3 @@ buildList()
 main.Visible = false
 openButton.Visible = true
 
-print("Simple Teleport Hub - Clean Black Edition loaded")
