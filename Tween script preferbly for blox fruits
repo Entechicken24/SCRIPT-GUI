@@ -17,9 +17,9 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 -- SETTINGS
-local MIN_SPEED = 5
-local MAX_SPEED = 150
-local SPEED_STEP = 5
+local MIN_SPEED = 1
+local MAX_SPEED = 500
+local SPEED_STEP = 50
 local DEFAULT_SPEED = 25
 local FOLLOW_DISTANCE = 5
 
