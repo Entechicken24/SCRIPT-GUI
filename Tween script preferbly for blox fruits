@@ -1,369 +1,635 @@
 
--- NEON CYBER / FOLLOW + AIM LOCK + TWEEN
--- Place in StarterPlayer > StarterPlayerScripts
--- For use in your own Roblox experience.
+--// NEON CYBER CONTROL CENTER V2
+--// Complete replacement LocalScript
+--// Put in StarterPlayer > StarterPlayerScripts
+--// Use in an experience you own or are authorized to test.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local Me = Players.LocalPlayer
 local PlayerGui = Me:WaitForChild("PlayerGui")
 
--- CONFIG
-local FOLLOW_DISTANCE = 4
-local CAMERA_DISTANCE = 12
-local MIN_DISTANCE = 5
-local MAX_DISTANCE = 35
-local ZOOM_STEP = 2
-local CAMERA_HEIGHT = 3
-local AIM_HEIGHT = 1.5
-local FOLLOW_SPEED = 16
+--==================================================
+-- SETTINGS
+--==================================================
 
-local CAMERA_BIND = "NeonCyberAimLock"
+local FOLLOW_DISTANCE = 5
+local FOLLOW_STOP_DISTANCE = 3.5
+local TWEEN_DISTANCE = 4
+local TWEEN_DURATION = 1.25
+local LOOP_DELAY = 0.15
+local MIN_ZOOM = 4
+local MAX_ZOOM = 30
 
--- COLORS
-local BG = Color3.fromRGB(10, 12, 25)
-local PANEL = Color3.fromRGB(19, 22, 43)
-local CARD = Color3.fromRGB(27, 31, 57)
-local PURPLE = Color3.fromRGB(151, 76, 255)
-local CYAN = Color3.fromRGB(0, 238, 255)
-local WHITE = Color3.fromRGB(241, 245, 255)
-local MUTED = Color3.fromRGB(151, 166, 201)
-local RED = Color3.fromRGB(255, 65, 110)
-local GREEN = Color3.fromRGB(40, 220, 160)
+local Theme = {
+    BG = Color3.fromRGB(9, 12, 24),
+    Panel = Color3.fromRGB(16, 21, 39),
+    Surface = Color3.fromRGB(25, 32, 54),
+    Hover = Color3.fromRGB(36, 45, 72),
+    Cyan = Color3.fromRGB(0, 230, 255),
+    Purple = Color3.fromRGB(178, 91, 255),
+    Green = Color3.fromRGB(75, 240, 170),
+    Red = Color3.fromRGB(255, 82, 110),
+    White = Color3.fromRGB(240, 246, 255),
+    Muted = Color3.fromRGB(146, 161, 187),
+}
 
+--==================================================
+-- CLEAN OLD VERSION
+--==================================================
+
+local old = PlayerGui:FindFirstChild("NeonCyberControlCenter")
+if old then
+    old:Destroy()
+end
+
+--==================================================
 -- STATE
-local selected
-local aimEnabled = false
-local followEnabled = false
-local tweenEnabled = false
+--==================================================
 
-local desiredDistance = CAMERA_DISTANCE
-local currentDistance = CAMERA_DISTANCE
+local targetPlayer
+local panelOpen = true
 
-local cameraPosition
-local cameraLook
+local followOn = false
+local aimOn = false
+local loopTweenOn = false
 
-local activeTween
-local tweenConnection
+local zoomDistance = 10
 local followConnection
-local characterConnection
+local aimConnection
+local activeTween
+local loopId = 0
 
 local savedCameraType
 local savedCameraSubject
 local savedCameraCFrame
 
-local originalAutoRotate
-local controlledHumanoid
-
 local playerButtons = {}
-local connections = {}
 
--- REMOVE PREVIOUS GUI
-local previous = PlayerGui:FindFirstChild("NeonCyberGui")
-if previous then
-    previous:Destroy()
+--==================================================
+-- GUI HELPERS
+--==================================================
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "NeonCyberControlCenter"
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 100
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = PlayerGui
+
+local function corner(obj, radius)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, radius or 9)
+    c.Parent = obj
 end
 
--- HELPERS
-local function create(className, properties, parent)
-    local object = Instance.new(className)
+local function stroke(obj, color, thickness)
+    local s = Instance.new("UIStroke")
+    s.Color = color or Theme.Cyan
+    s.Thickness = thickness or 1
+    s.Transparency = 0.15
+    s.Parent = obj
+end
 
-    for property, value in pairs(properties) do
-        object[property] = value
+local function new(className, props, parent)
+    local obj = Instance.new(className)
+    for key, value in pairs(props or {}) do
+        obj[key] = value
     end
-
-    object.Parent = parent
-    return object
+    obj.Parent = parent
+    return obj
 end
 
-local function round(object, radius)
-    create("UICorner", {
-        CornerRadius = UDim.new(0, radius)
-    }, object)
+local function label(parent, text, pos, size, textSize, color, font)
+    return new("TextLabel", {
+        BackgroundTransparency = 1,
+        Position = pos,
+        Size = size,
+        Text = text,
+        TextSize = textSize or 12,
+        TextColor3 = color or Theme.White,
+        Font = font or Enum.Font.Gotham,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Center,
+        TextWrapped = true,
+        ZIndex = 5,
+    }, parent)
 end
 
-local function outline(object, color, thickness)
-    return create("UIStroke", {
-        Color = color,
-        Thickness = thickness or 1.2
-    }, object)
+local function button(parent, text, pos, size, accent)
+    local b = new("TextButton", {
+        Position = pos,
+        Size = size,
+        BackgroundColor3 = Theme.Surface,
+        BorderSizePixel = 0,
+        AutoButtonColor = false,
+        Text = text,
+        TextSize = 12,
+        TextColor3 = Theme.White,
+        TextWrapped = true,
+        Font = Enum.Font.GothamBold,
+        ZIndex = 10,
+    }, parent)
+
+    corner(b, 9)
+    stroke(b, accent or Theme.Cyan, 1)
+
+    b.MouseEnter:Connect(function()
+        b.BackgroundColor3 = Theme.Hover
+    end)
+
+    b.MouseLeave:Connect(function()
+        b.BackgroundColor3 = Theme.Surface
+    end)
+
+    return b
+end
+
+-- Drag a window by its title bar, or drag a floating button itself.
+-- Supports both mouse and touch input.
+local function makeDraggable(handle, object)
+    local dragging = false
+    local dragStart
+    local startPosition
+    local activeInput
+    local moved = false
+    local lastMove = 0
+
+    handle.Active = true
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+
+        dragging = true
+        moved = false
+        dragStart = input.Position
+        startPosition = object.Position
+        activeInput = input
+        lastMove = 0
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                task.delay(0.12, function()
+                    moved = false
+                end)
+            end
+        end)
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then
+            return
+        end
+
+        local validMouse = input.UserInputType
+            == Enum.UserInputType.MouseMovement
+        local validTouch = input == activeInput
+
+        if not validMouse and not validTouch then
+            return
+        end
+
+        local delta = input.Position - dragStart
+
+        if math.abs(delta.X) > 3 or math.abs(delta.Y) > 3 then
+            moved = true
+        end
+
+        if moved then
+            lastMove = os.clock()
+
+            object.Position = UDim2.new(
+                startPosition.X.Scale,
+                startPosition.X.Offset + delta.X,
+                startPosition.Y.Scale,
+                startPosition.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    -- Prevent a drag gesture from accidentally activating a button.
+    if handle:IsA("TextButton") then
+        handle.Activated:Connect(function()
+            if moved or os.clock() - lastMove < 0.15 then
+                return
+            end
+        end)
+    end
+end
+
+--==================================================
+-- MAIN PANEL
+--==================================================
+
+local panel = new("Frame", {
+    Name = "MainPanel",
+    Position = UDim2.new(0, 22, 0.5, -235),
+    Size = UDim2.new(0, 320, 0, 470),
+    BackgroundColor3 = Theme.BG,
+    BorderSizePixel = 0,
+    ZIndex = 2,
+}, gui)
+
+corner(panel, 15)
+stroke(panel, Theme.Cyan, 1.5)
+
+local header = new("Frame", {
+    Name = "DragHeader",
+    Size = UDim2.new(1, 0, 0, 65),
+    BackgroundColor3 = Theme.Panel,
+    BorderSizePixel = 0,
+    ZIndex = 3,
+}, panel)
+
+corner(header, 15)
+
+new("Frame", {
+    Position = UDim2.new(0, 0, 1, -12),
+    Size = UDim2.new(1, 0, 0, 12),
+    BackgroundColor3 = Theme.Panel,
+    BorderSizePixel = 0,
+    ZIndex = 3,
+}, header)
+
+label(
+    header, "NEON CYBER",
+    UDim2.new(0, 16, 0, 7),
+    UDim2.new(1, -32, 0, 28),
+    20, Theme.White, Enum.Font.GothamBlack
+)
+
+label(
+    header, "CONTROL CENTER  /  V2",
+    UDim2.new(0, 17, 0, 36),
+    UDim2.new(1, -34, 0, 17),
+    10, Theme.Cyan, Enum.Font.GothamBold
+)
+
+makeDraggable(header, panel)
+
+label(
+    panel, "TARGET PLAYER",
+    UDim2.new(0, 15, 0, 76),
+    UDim2.new(1, -30, 0, 20),
+    11, Theme.Muted, Enum.Font.GothamBold
+)
+
+local playerList = new("ScrollingFrame", {
+    Name = "PlayerList",
+    Position = UDim2.new(0, 15, 0, 101),
+    Size = UDim2.new(1, -30, 0, 145),
+    BackgroundColor3 = Theme.Panel,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = Theme.Cyan,
+    CanvasSize = UDim2.new(),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ZIndex = 4,
+}, panel)
+
+corner(playerList, 9)
+stroke(playerList, Theme.Purple, 1)
+
+new("UIPadding", {
+    PaddingTop = UDim.new(0, 6),
+    PaddingBottom = UDim.new(0, 6),
+    PaddingLeft = UDim.new(0, 6),
+    PaddingRight = UDim.new(0, 6),
+}, playerList)
+
+new("UIListLayout", {
+    Padding = UDim.new(0, 5),
+    SortOrder = Enum.SortOrder.LayoutOrder,
+}, playerList)
+
+local selectedLabel = label(
+    panel, "TARGET  /  NONE",
+    UDim2.new(0, 16, 0, 252),
+    UDim2.new(1, -32, 0, 23),
+    11, Theme.Cyan, Enum.Font.GothamBold
+)
+
+local followButton = button(
+    panel, "START FOLLOW",
+    UDim2.new(0, 15, 0, 282),
+    UDim2.new(1, -30, 0, 37),
+    Theme.Purple
+)
+
+label(
+    panel, "AIM CAMERA DISTANCE",
+    UDim2.new(0, 16, 0, 329),
+    UDim2.new(1, -32, 0, 18),
+    10, Theme.Muted, Enum.Font.GothamBold
+)
+
+local zoomValue = label(
+    panel, "10 studs",
+    UDim2.new(0, 16, 0, 348),
+    UDim2.new(1, -32, 0, 18),
+    11, Theme.Cyan, Enum.Font.GothamBold
+)
+
+local zoomMinus = button(
+    panel, "- DISTANCE",
+    UDim2.new(0, 15, 0, 372),
+    UDim2.new(0.5, -20, 0, 31),
+    Theme.Cyan
+)
+
+local zoomPlus = button(
+    panel, "+ DISTANCE",
+    UDim2.new(0.5, 5, 0, 372),
+    UDim2.new(0.5, -20, 0, 31),
+    Theme.Cyan
+)
+
+local statusBox = new("Frame", {
+    Position = UDim2.new(0, 15, 0, 415),
+    Size = UDim2.new(1, -30, 0, 40),
+    BackgroundColor3 = Theme.Panel,
+    BorderSizePixel = 0,
+    ZIndex = 4,
+}, panel)
+
+corner(statusBox, 8)
+stroke(statusBox, Theme.Cyan, 1)
+
+local statusLabel = label(
+    statusBox, "READY  /  Select a player",
+    UDim2.new(0, 9, 0, 3),
+    UDim2.new(1, -18, 1, -6),
+    10, Theme.Muted
+)
+
+--==================================================
+-- FLOATING CONTROLS
+-- Parent is gui, NOT panel. They remain visible when
+-- the panel is hidden. Drag each one independently.
+--==================================================
+
+local floatingOpen = button(
+    gui, "PANEL  /  CLOSE",
+    UDim2.new(1, -190, 0.5, -112),
+    UDim2.new(0, 168, 0, 38),
+    Theme.Cyan
+)
+
+local floatingAim = button(
+    gui, "AIM LOCK  /  OFF",
+    UDim2.new(1, -190, 0.5, -66),
+    UDim2.new(0, 168, 0, 38),
+    Theme.Purple
+)
+
+local floatingTween = button(
+    gui, "LOOP TWEEN  /  OFF",
+    UDim2.new(1, -190, 0.5, -20),
+    UDim2.new(0, 168, 0, 38),
+    Theme.Green
+)
+
+local floatingStop = button(
+    gui, "STOP TWEEN",
+    UDim2.new(1, -190, 0.5, 26),
+    UDim2.new(0, 168, 0, 38),
+    Theme.Red
+)
+
+makeDraggable(floatingOpen, floatingOpen)
+makeDraggable(floatingAim, floatingAim)
+makeDraggable(floatingTween, floatingTween)
+makeDraggable(floatingStop, floatingStop)
+
+--==================================================
+-- HELPERS
+--==================================================
+
+local function setStatus(message)
+    statusLabel.Text = "READY  /  " .. message
 end
 
 local function getParts(player)
-    if not player then
+    if not player or not player.Character then
         return nil, nil, nil
     end
 
     local character = player.Character
-    if not character then
-        return nil, nil, nil
-    end
-
-    local humanoid =
-        character:FindFirstChildOfClass("Humanoid")
-
-    local root =
+    return character,
+        character:FindFirstChildOfClass("Humanoid"),
         character:FindFirstChild("HumanoidRootPart")
+end
 
-    if not humanoid or not root or humanoid.Health <= 0 then
-        return nil, nil, nil
+local function localParts()
+    return getParts(Me)
+end
+
+local function targetRoot()
+    local _, _, root = getParts(targetPlayer)
+    return root
+end
+
+local function validTarget()
+    if not targetPlayer then
+        setStatus("Select a player first.")
+        return false
     end
 
-    return character, humanoid, root
+    if targetPlayer == Me then
+        setStatus("Select another player.")
+        return false
+    end
+
+    if not targetPlayer.Parent or not targetRoot() then
+        setStatus("Target character not ready.")
+        return false
+    end
+
+    return true
 end
 
-local function addConnection(connection)
-    table.insert(connections, connection)
-    return connection
+local function refreshSelectedLabel()
+    selectedLabel.Text = targetPlayer
+        and ("TARGET  /  " .. targetPlayer.DisplayName)
+        or "TARGET  /  NONE"
 end
 
--- GUI
-local gui = create("ScreenGui", {
-    Name = "NeonCyberGui",
-    ResetOnSpawn = false,
-    IgnoreGuiInset = true,
-    DisplayOrder = 100,
-    ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-}, PlayerGui)
+--==================================================
+-- PLAYER SELECTOR
+--==================================================
 
-local openButton = create("TextButton", {
-    Name = "OpenButton",
-    Size = UDim2.fromOffset(150, 42),
-    Position = UDim2.new(0, 20, 0.5, -21),
-    BackgroundColor3 = PURPLE,
-    Text = "✦  NEON FOLLOW",
-    TextColor3 = WHITE,
-    Font = Enum.Font.GothamBold,
-    TextSize = 12,
-    ZIndex = 5
-}, gui)
+local function refreshPlayers()
+    for _, b in ipairs(playerButtons) do
+        if b.Parent then
+            b:Destroy()
+        end
+    end
+    table.clear(playerButtons)
 
-round(openButton, 10)
-outline(openButton, CYAN, 1.5)
+    local empty = playerList:FindFirstChild("EmptyMessage")
+    if empty then
+        empty:Destroy()
+    end
 
-local panel = create("Frame", {
-    Name = "MainPanel",
-    Size = UDim2.fromOffset(330, 540),
-    Position = UDim2.new(0, 20, 0.5, -270),
-    BackgroundColor3 = BG,
-    BorderSizePixel = 0,
-    Visible = false,
-    ZIndex = 10
-}, gui)
+    local list = Players:GetPlayers()
 
-round(panel, 14)
-outline(panel, PURPLE, 1.5)
+    table.sort(list, function(a, b)
+        return a.DisplayName:lower() < b.DisplayName:lower()
+    end)
 
-local header = create("Frame", {
-    Size = UDim2.new(1, 0, 0, 58),
-    BackgroundColor3 = PANEL,
-    BorderSizePixel = 0,
-    ZIndex = 11
-}, panel)
+    local order = 0
 
-round(header, 14)
+    for _, player in ipairs(list) do
+        if player ~= Me then
+            order += 1
 
-create("TextLabel", {
-    Size = UDim2.new(1, -55, 0, 27),
-    Position = UDim2.fromOffset(14, 6),
-    BackgroundTransparency = 1,
-    Text = "N E O N  /  C Y B E R",
-    TextColor3 = WHITE,
-    Font = Enum.Font.GothamBold,
-    TextSize = 15,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    ZIndex = 12
-}, header)
+            local chosen = player == targetPlayer
+            local b = button(
+                playerList,
+                player.DisplayName,
+                UDim2.new(),
+                UDim2.new(1, -3, 0, 30),
+                chosen and Theme.Purple or Theme.Cyan
+            )
 
-create("TextLabel", {
-    Size = UDim2.new(1, -55, 0, 15),
-    Position = UDim2.fromOffset(14, 34),
-    BackgroundTransparency = 1,
-    Text = "FOLLOW • AIM LOCK • TWEEN",
-    TextColor3 = CYAN,
-    Font = Enum.Font.Code,
-    TextSize = 9,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    ZIndex = 12
-}, header)
+            b.Name = "Player_" .. player.UserId
+            b.LayoutOrder = order
+            b.TextXAlignment = Enum.TextXAlignment.Left
+            b.Text = "   " .. player.DisplayName .. "  @" .. player.Name
+            b.TextSize = 11
 
-local closeButton = create("TextButton", {
-    Size = UDim2.fromOffset(30, 30),
-    Position = UDim2.new(1, -40, 0, 12),
-    BackgroundColor3 = CARD,
-    Text = "×",
-    TextColor3 = RED,
-    Font = Enum.Font.GothamBold,
-    TextSize = 22,
-    ZIndex = 13
-}, header)
+            b.Activated:Connect(function()
+                if followOn or aimOn or loopTweenOn then
+                    setStatus("Stop active controls to change target.")
+                    return
+                end
 
-round(closeButton, 8)
+                targetPlayer = player
+                refreshSelectedLabel()
+                refreshPlayers()
+                setStatus("Target selected.")
+            end)
 
-local function label(text, position, size)
-    return create("TextLabel", {
-        Size = size,
-        Position = position,
-        BackgroundTransparency = 1,
-        Text = text,
-        TextColor3 = CYAN,
-        Font = Enum.Font.GothamBold,
-        TextSize = 11,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 12
-    }, panel)
+            table.insert(playerButtons, b)
+        end
+    end
+
+    if order == 0 then
+        label(
+            playerList, "No other players found.",
+            UDim2.new(0, 7, 0, 5),
+            UDim2.new(1, -14, 0, 25),
+            11, Theme.Muted
+        ).Name = "EmptyMessage"
+    end
+
+    refreshSelectedLabel()
 end
 
-local function button(text, position, size, color)
-    local b = create("TextButton", {
-        Size = size,
-        Position = position,
-        BackgroundColor3 = CARD,
-        Text = text,
-        TextColor3 = WHITE,
-        Font = Enum.Font.GothamBold,
-        TextSize = 11,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        ZIndex = 12,
-        AutoButtonColor = true
-    }, panel)
+--==================================================
+-- FOLLOW
+--==================================================
 
-    round(b, 8)
-    outline(b, color or PURPLE, 1)
-    return b
+local function stopFollow(message)
+    followOn = false
+
+    if followConnection then
+        followConnection:Disconnect()
+        followConnection = nil
+    end
+
+    followButton.Text = "START FOLLOW"
+    if message then
+        setStatus(message)
+    end
 end
 
-label(
-    "◈  TARGET PLAYER",
-    UDim2.fromOffset(14, 67),
-    UDim2.new(1, -28, 0, 20)
-)
-
-local playerList = create("ScrollingFrame", {
-    Name = "PlayerList",
-    Size = UDim2.new(1, -28, 0, 125),
-    Position = UDim2.fromOffset(14, 91),
-    BackgroundColor3 = PANEL,
-    BorderSizePixel = 0,
-    ScrollBarThickness = 4,
-    ScrollBarImageColor3 = CYAN,
-    AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    CanvasSize = UDim2.new(),
-    ZIndex = 12
-}, panel)
-
-round(playerList, 8)
-outline(playerList, PURPLE, 1)
-
-create("UIPadding", {
-    PaddingTop = UDim.new(0, 6),
-    PaddingLeft = UDim.new(0, 6),
-    PaddingRight = UDim.new(0, 6),
-    PaddingBottom = UDim.new(0, 6)
-}, playerList)
-
-create("UIListLayout", {
-    Padding = UDim.new(0, 5),
-    SortOrder = Enum.SortOrder.Name
-}, playerList)
-
-local aimButton = button(
-    "◎  AIM LOCK: OFF",
-    UDim2.fromOffset(14, 228),
-    UDim2.new(1, -28, 0, 34),
-    CYAN
-)
-
-local followButton = button(
-    "▶  FOLLOW: OFF",
-    UDim2.fromOffset(14, 269),
-    UDim2.new(1, -28, 0, 34),
-    PURPLE
-)
-
-local tweenButton = button(
-    "⚡  START TWEEN",
-    UDim2.fromOffset(14, 310),
-    UDim2.new(1, -28, 0, 34),
-    PURPLE
-)
-
-local stopTweenButton = button(
-    "■  STOP TWEEN",
-    UDim2.fromOffset(14, 351),
-    UDim2.new(1, -28, 0, 34),
-    RED
-)
-
-label(
-    "◈  CAMERA DISTANCE",
-    UDim2.fromOffset(14, 393),
-    UDim2.new(1, -28, 0, 20)
-)
-
-local zoomLabel = create("TextLabel", {
-    Size = UDim2.fromOffset(90, 28),
-    Position = UDim2.new(0.5, -45, 0, 419),
-    BackgroundTransparency = 1,
-    Text = tostring(CAMERA_DISTANCE) .. " studs",
-    TextColor3 = WHITE,
-    Font = Enum.Font.Gotham,
-    TextSize = 12,
-    ZIndex = 12
-}, panel)
-
-local zoomOut = button(
-    "−  ZOOM OUT",
-    UDim2.fromOffset(14, 419),
-    UDim2.new(0.5, -21, 0, 30),
-    PURPLE
-)
-
-local zoomIn = button(
-    "+  ZOOM IN",
-    UDim2.new(0.5, 7, 0, 419),
-    UDim2.new(0.5, -21, 0, 30),
-    CYAN
-)
-
-local status = create("TextLabel", {
-    Size = UDim2.new(1, -28, 0, 35),
-    Position = UDim2.fromOffset(14, 458),
-    BackgroundTransparency = 1,
-    Text = "Select a player to begin",
-    TextColor3 = MUTED,
-    Font = Enum.Font.Gotham,
-    TextSize = 10,
-    TextWrapped = true,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    ZIndex = 12
-}, panel)
-
--- CAMERA AIM LOCK
-local function stopAimLock()
-    if not aimEnabled then
+local function startFollow()
+    if not validTarget() then
         return
     end
 
-    aimEnabled = false
-    RunService:UnbindFromRenderStep(CAMERA_BIND)
+    followOn = true
+    followButton.Text = "STOP FOLLOW"
+    setStatus("Following " .. targetPlayer.DisplayName .. ".")
+
+    if followConnection then
+        followConnection:Disconnect()
+    end
+
+    followConnection = RunService.Heartbeat:Connect(function()
+        if not followOn then
+            return
+        end
+
+        if not targetPlayer or not targetPlayer.Parent then
+            stopFollow("Target unavailable.")
+            return
+        end
+
+        local _, humanoid, root = localParts()
+        local _, _, target = getParts(targetPlayer)
+
+        if not humanoid or not root or not target then
+            return
+        end
+
+        local goal = target.Position
+            - target.CFrame.LookVector * FOLLOW_DISTANCE
+
+        local delta = Vector3.new(
+            goal.X - root.Position.X,
+            0,
+            goal.Z - root.Position.Z
+        )
+
+        if delta.Magnitude > FOLLOW_STOP_DISTANCE then
+            humanoid:Move(delta.Unit, false)
+        else
+            humanoid:Move(Vector3.zero, false)
+        end
+    end)
+end
+
+followButton.Activated:Connect(function()
+    if followOn then
+        stopFollow("Follow stopped.")
+    else
+        startFollow()
+    end
+end)
+
+--==================================================
+-- AIM LOCK
+--==================================================
+
+local function stopAim(message)
+    aimOn = false
+
+    if aimConnection then
+        aimConnection:Disconnect()
+        aimConnection = nil
+    end
 
     local camera = workspace.CurrentCamera
 
     if camera then
-        camera.CameraType =
-            savedCameraType or Enum.CameraType.Custom
+        camera.CameraType = savedCameraType or Enum.CameraType.Custom
 
-        local _, humanoid = getParts(Me)
-
-        if humanoid then
-            camera.CameraSubject = humanoid
-        elseif savedCameraSubject
-            and savedCameraSubject.Parent then
+        if savedCameraSubject and savedCameraSubject.Parent then
             camera.CameraSubject = savedCameraSubject
+        else
+            local _, humanoid = localParts()
+            if humanoid then
+                camera.CameraSubject = humanoid
+            end
         end
 
         if savedCameraCFrame then
@@ -371,30 +637,21 @@ local function stopAimLock()
         end
     end
 
-    savedCameraType = nil
-    savedCameraSubject = nil
-    savedCameraCFrame = nil
+    floatingAim.Text = "AIM LOCK  /  OFF"
 
-    cameraPosition = nil
-    cameraLook = nil
-
-    aimButton.Text = "◎  AIM LOCK: OFF"
-    aimButton.TextColor3 = WHITE
+    if message then
+        setStatus(message)
+    end
 end
 
-local function startAimLock()
-    if not selected or selected == Me then
-        status.Text = "Select another player first"
+local function startAim()
+    if not validTarget() then
         return
     end
 
     local camera = workspace.CurrentCamera
     if not camera then
-        status.Text = "Camera unavailable"
-        return
-    end
-
-    if aimEnabled then
+        setStatus("Camera unavailable.")
         return
     end
 
@@ -402,425 +659,251 @@ local function startAimLock()
     savedCameraSubject = camera.CameraSubject
     savedCameraCFrame = camera.CFrame
 
-    cameraPosition = camera.CFrame.Position
-    cameraLook = camera.CFrame.LookVector
-    currentDistance = desiredDistance
-
-    aimEnabled = true
-
-    aimButton.Text = "◎  AIM LOCK: ON"
-    aimButton.TextColor3 = CYAN
-
+    aimOn = true
     camera.CameraType = Enum.CameraType.Scriptable
 
-    RunService:BindToRenderStep(
-        CAMERA_BIND,
-        Enum.RenderPriority.Camera.Value + 1,
-        function(dt)
-            if not aimEnabled then
-                return
-            end
+    floatingAim.Text = "AIM LOCK  /  ON"
+    setStatus("Aim Lock tracking target.")
 
-            local currentCamera = workspace.CurrentCamera
-            if not currentCamera then
-                return
-            end
+    if aimConnection then
+        aimConnection:Disconnect()
+    end
 
-            local _, _, targetRoot = getParts(selected)
-            local _, _, myRoot = getParts(Me)
-
-            if not targetRoot or not myRoot then
-                return
-            end
-
-            currentCamera.CameraType = Enum.CameraType.Scriptable
-
-            local alpha = 1 - math.exp(-10 * dt)
-            currentDistance +=
-                (desiredDistance - currentDistance) * alpha
-
-            local desiredPosition =
-                myRoot.Position
-                - myRoot.CFrame.LookVector * currentDistance
-                + Vector3.new(0, CAMERA_HEIGHT, 0)
-
-            local aimPoint =
-                targetRoot.Position
-                + Vector3.new(0, AIM_HEIGHT, 0)
-
-            local direction = aimPoint - desiredPosition
-            if direction.Magnitude < 0.001 then
-                return
-            end
-
-            cameraPosition = cameraPosition:Lerp(
-                desiredPosition,
-                1 - math.exp(-14 * dt)
-            )
-
-            cameraLook = cameraLook:Lerp(
-                direction.Unit,
-                1 - math.exp(-20 * dt)
-            )
-
-            if cameraLook.Magnitude > 0.001 then
-                currentCamera.CFrame = CFrame.lookAt(
-                    cameraPosition,
-                    cameraPosition + cameraLook.Unit
-                )
-            end
+    aimConnection = RunService.RenderStepped:Connect(function()
+        if not aimOn then
+            return
         end
-    )
 
-    status.Text = "Aim locked: " .. selected.DisplayName
+        if not targetPlayer or not targetPlayer.Parent then
+            stopAim("Target unavailable.")
+            return
+        end
+
+        local cameraNow = workspace.CurrentCamera
+        local _, _, ownRoot = localParts()
+        local _, targetHumanoid, enemyRoot = getParts(targetPlayer)
+
+        if not cameraNow or not ownRoot or not targetHumanoid or not enemyRoot then
+            return
+        end
+
+        cameraNow.CameraType = Enum.CameraType.Scriptable
+
+        local focus = enemyRoot.Position + Vector3.new(0, 2, 0)
+        local position = ownRoot.Position
+            - ownRoot.CFrame.LookVector * zoomDistance
+            + Vector3.new(0, 3, 0)
+
+        cameraNow.CFrame = CFrame.lookAt(position, focus)
+    end)
 end
 
--- TWEEN
-local function stopTween()
-    tweenEnabled = false
+floatingAim.Activated:Connect(function()
+    if aimOn then
+        stopAim("Aim Lock stopped.")
+    else
+        startAim()
+    end
+end)
+
+--==================================================
+-- LOOP TWEEN
+-- Recalculates the destination every cycle.
+-- STOP TWEEN cancels the active tween and ends the loop.
+--==================================================
+
+local function stopLoopTween(message)
+    loopTweenOn = false
+    loopId += 1
 
     if activeTween then
         activeTween:Cancel()
         activeTween = nil
     end
 
-    if tweenConnection then
-        tweenConnection:Disconnect()
-        tweenConnection = nil
-    end
+    floatingTween.Text = "LOOP TWEEN  /  OFF"
 
-    tweenButton.Text = "⚡  START TWEEN"
-    tweenButton.TextColor3 = WHITE
+    if message then
+        setStatus(message)
+    end
 end
 
-local function startTween()
-    if not selected or selected == Me then
-        status.Text = "Select another player first"
+local function startLoopTween()
+    if loopTweenOn then
         return
     end
 
-    local _, _, myRoot = getParts(Me)
-    local _, _, targetRoot = getParts(selected)
-
-    if not myRoot or not targetRoot then
-        status.Text = "A character isn't ready"
+    if not validTarget() then
         return
     end
 
-    stopTween()
+    loopTweenOn = true
+    loopId += 1
 
-    -- In your own game, use a server-authorized movement
-    -- system for reliable replicated character movement.
-    -- This client tween is intended for local prototypes.
+    local thisLoop = loopId
 
-    local goal =
-        targetRoot.Position
-        - targetRoot.CFrame.LookVector * FOLLOW_DISTANCE
+    floatingTween.Text = "LOOP TWEEN  /  ON"
+    setStatus("Loop Tween running.")
 
-    local distance = (goal - myRoot.Position).Magnitude
-    local duration = math.clamp(distance / 40, 0.25, 5)
-
-    tweenEnabled = true
-    tweenButton.Text = "⚡  TWEENING..."
-    tweenButton.TextColor3 = CYAN
-
-    activeTween = TweenService:Create(
-        myRoot,
-        TweenInfo.new(
-            duration,
-            Enum.EasingStyle.Quad,
-            Enum.EasingDirection.Out
-        ),
-        {
-            CFrame = CFrame.lookAt(
-                goal,
-                targetRoot.Position
-            )
-        }
-    )
-
-    local thisTween = activeTween
-
-    tweenConnection = thisTween.Completed:Connect(function()
-        if activeTween ~= thisTween then
-            return
-        end
-
-        activeTween = nil
-        tweenEnabled = false
-
-        if tweenConnection then
-            tweenConnection:Disconnect()
-            tweenConnection = nil
-        end
-
-        tweenButton.Text = "⚡  START TWEEN"
-        tweenButton.TextColor3 = WHITE
-        status.Text = "Tween finished"
-    end)
-
-    thisTween:Play()
-    status.Text = "Tweening toward " .. selected.DisplayName
-end
-
--- FOLLOW
-local function stopFollow()
-    followEnabled = false
-
-    if followConnection then
-        followConnection:Disconnect()
-        followConnection = nil
-    end
-
-    local _, humanoid = getParts(Me)
-
-    if humanoid and originalAutoRotate ~= nil then
-        humanoid.AutoRotate = originalAutoRotate
-    end
-
-    controlledHumanoid = nil
-    originalAutoRotate = nil
-
-    followButton.Text = "▶  FOLLOW: OFF"
-    followButton.TextColor3 = WHITE
-end
-
-local function startFollow()
-    if not selected or selected == Me then
-        status.Text = "Select another player first"
-        return
-    end
-
-    local _, humanoid, root = getParts(Me)
-    local _, _, targetRoot = getParts(selected)
-
-    if not humanoid or not root or not targetRoot then
-        status.Text = "A character isn't ready"
-        return
-    end
-
-    stopFollow()
-
-    followEnabled = true
-    controlledHumanoid = humanoid
-    originalAutoRotate = humanoid.AutoRotate
-
-    followButton.Text = "■  FOLLOW: ON"
-    followButton.TextColor3 = GREEN
-
-    followConnection = RunService.Heartbeat:Connect(function()
-        if not followEnabled then
-            return
-        end
-
-        local _, currentHumanoid, currentRoot = getParts(Me)
-        local _, _, currentTarget = getParts(selected)
-
-        if not currentHumanoid or not currentRoot
-            or not currentTarget then
-            return
-        end
-
-        -- Walk toward a point behind the target using
-        -- the normal Humanoid movement controller.
-        local goal = currentTarget.Position
-            - currentTarget.CFrame.LookVector * FOLLOW_DISTANCE
-
-        local delta = goal - currentRoot.Position
-
-        if delta.Magnitude > 1.5 then
-            currentHumanoid:Move(
-                Vector3.new(delta.X, 0, delta.Z).Magnitude > 0
-                    and Vector3.new(delta.X, 0, delta.Z).Unit
-                    or Vector3.zero,
-                false
-            )
-        else
-            currentHumanoid:Move(Vector3.zero, false)
-        end
-    end)
-
-    status.Text = "Following: " .. selected.DisplayName
-end
-
--- PLAYER LIST
-local function refreshPlayers()
-    for _, child in ipairs(playerList:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
-    end
-
-    table.clear(playerButtons)
-
-    local others = {}
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= Me then
-            table.insert(others, player)
-        end
-    end
-
-    table.sort(others, function(a, b)
-        return a.Name:lower() < b.Name:lower()
-    end)
-
-    for index, player in ipairs(others) do
-        local isSelected = player == selected
-
-        local b = create("TextButton", {
-            Name = string.format("%03d_Player", index),
-            Size = UDim2.new(1, -4, 0, 32),
-            BackgroundColor3 = isSelected
-                and Color3.fromRGB(60, 45, 105)
-                or CARD,
-            Text = "◇  " .. player.Name
-                .. "  (@" .. player.DisplayName .. ")",
-            TextColor3 = WHITE,
-            Font = Enum.Font.GothamMedium,
-            TextSize = 10,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd,
-            ZIndex = 13
-        }, playerList)
-
-        round(b, 7)
-        outline(b, isSelected and CYAN or PURPLE, 1)
-
-        playerButtons[player] = b
-
-        b.Activated:Connect(function()
-            if followEnabled or tweenEnabled then
-                status.Text = "Stop Follow/Tween before switching"
+    task.spawn(function()
+        while loopTweenOn and thisLoop == loopId do
+            if not targetPlayer or not targetPlayer.Parent then
+                stopLoopTween("Target unavailable.")
                 return
             end
 
-            selected = player
-            refreshPlayers()
-            status.Text = "Selected: " .. player.DisplayName
-        end)
-    end
+            local _, _, ownRoot = localParts()
+            local _, _, enemyRoot = getParts(targetPlayer)
+
+            if ownRoot and enemyRoot then
+                local goal = enemyRoot.Position
+                    - enemyRoot.CFrame.LookVector * TWEEN_DISTANCE
+
+                local destination = CFrame.lookAt(
+                    Vector3.new(goal.X, ownRoot.Position.Y, goal.Z),
+                    Vector3.new(
+                        enemyRoot.Position.X,
+                        ownRoot.Position.Y,
+                        enemyRoot.Position.Z
+                    )
+                )
+
+                local tween = TweenService:Create(
+                    ownRoot,
+                    TweenInfo.new(
+                        TWEEN_DURATION,
+                        Enum.EasingStyle.Quad,
+                        Enum.EasingDirection.Out
+                    ),
+                    { CFrame = destination }
+                )
+
+                activeTween = tween
+                tween:Play()
+
+                local result = tween.Completed:Wait()
+
+                if activeTween == tween then
+                    activeTween = nil
+                end
+
+                if not loopTweenOn or thisLoop ~= loopId then
+                    return
+                end
+
+                if result ~= Enum.PlaybackState.Completed then
+                    task.wait(LOOP_DELAY)
+                end
+            else
+                task.wait(0.2)
+            end
+
+            if loopTweenOn and thisLoop == loopId then
+                task.wait(LOOP_DELAY)
+            end
+        end
+    end)
 end
 
--- BUTTONS
-openButton.Activated:Connect(function()
-    panel.Visible = not panel.Visible
-    openButton.Visible = not panel.Visible
-end)
-
-closeButton.Activated:Connect(function()
-    panel.Visible = false
-    openButton.Visible = true
-end)
-
-aimButton.Activated:Connect(function()
-    if aimEnabled then
-        stopAimLock()
-        status.Text = "Aim lock disabled"
+floatingTween.Activated:Connect(function()
+    if loopTweenOn then
+        stopLoopTween("Loop Tween paused.")
     else
-        startAimLock()
+        startLoopTween()
     end
 end)
 
-followButton.Activated:Connect(function()
-    if followEnabled then
-        stopFollow()
-        status.Text = "Follow stopped"
+floatingStop.Activated:Connect(function()
+    if loopTweenOn then
+        stopLoopTween("Loop Tween stopped.")
     else
-        startFollow()
+        setStatus("No active tween.")
     end
 end)
 
-tweenButton.Activated:Connect(function()
-    if not tweenEnabled then
-        startTween()
+--==================================================
+-- ZOOM
+--==================================================
+
+local function updateZoomText()
+    zoomValue.Text = tostring(zoomDistance) .. " studs"
+end
+
+zoomMinus.Activated:Connect(function()
+    zoomDistance = math.clamp(zoomDistance - 2, MIN_ZOOM, MAX_ZOOM)
+    updateZoomText()
+end)
+
+zoomPlus.Activated:Connect(function()
+    zoomDistance = math.clamp(zoomDistance + 2, MIN_ZOOM, MAX_ZOOM)
+    updateZoomText()
+end)
+
+--==================================================
+-- PANEL VISIBILITY
+-- Floating controls stay visible when panel is hidden.
+--==================================================
+
+floatingOpen.Activated:Connect(function()
+    panelOpen = not panelOpen
+    panel.Visible = panelOpen
+    floatingOpen.Text = panelOpen and "PANEL  /  CLOSE" or "PANEL  /  OPEN"
+end)
+
+--==================================================
+-- PLAYER LEAVING / RESPAWN
+--==================================================
+
+Players.PlayerAdded:Connect(refreshPlayers)
+
+Players.PlayerRemoving:Connect(function(player)
+    if player == targetPlayer then
+        if followOn then
+            stopFollow("Target left the server.")
+        end
+
+        if aimOn then
+            stopAim("Target left the server.")
+        end
+
+        if loopTweenOn then
+            stopLoopTween("Target left the server.")
+        end
+
+        targetPlayer = nil
+        refreshSelectedLabel()
     end
+
+    refreshPlayers()
 end)
 
-stopTweenButton.Activated:Connect(function()
-    stopTween()
-    status.Text = "Tween cancelled"
-end)
-
-zoomIn.Activated:Connect(function()
-    desiredDistance = math.clamp(
-        desiredDistance - ZOOM_STEP,
-        MIN_DISTANCE,
-        MAX_DISTANCE
-    )
-
-    zoomLabel.Text = desiredDistance .. " studs"
-end)
-
-zoomOut.Activated:Connect(function()
-    desiredDistance = math.clamp(
-        desiredDistance + ZOOM_STEP,
-        MIN_DISTANCE,
-        MAX_DISTANCE
-    )
-
-    zoomLabel.Text = desiredDistance .. " studs"
-end)
-
-UIS.InputChanged:Connect(function(input, processed)
-    if processed or not aimEnabled then
-        return
-    end
-
-    if input.UserInputType == Enum.UserInputType.MouseWheel then
-        desiredDistance = math.clamp(
-            desiredDistance - input.Position.Z * ZOOM_STEP,
-            MIN_DISTANCE,
-            MAX_DISTANCE
-        )
-
-        zoomLabel.Text = desiredDistance .. " studs"
-    end
-end)
-
--- RESPAWN SUPPORT
-addConnection(Me.CharacterAdded:Connect(function()
+Me.CharacterAdded:Connect(function()
     task.wait(0.5)
 
-    if followEnabled then
-        stopFollow()
+    if loopTweenOn then
+        stopLoopTween("Tween stopped after respawn.")
     end
 
-    -- Aim Lock stays enabled and reacquires the new
-    -- local character on the next render update.
-end))
+    if aimOn then
+        local camera = workspace.CurrentCamera
+        local _, humanoid = localParts()
 
-addConnection(Players.PlayerAdded:Connect(function()
-    task.defer(refreshPlayers)
-end))
-
-addConnection(Players.PlayerRemoving:Connect(function(player)
-    if player == selected then
-        stopTween()
-        stopFollow()
-        stopAimLock()
-
-        selected = nil
-        status.Text = "Target left the game"
+        if camera then
+            camera.CameraType = Enum.CameraType.Scriptable
+            if humanoid then
+                savedCameraSubject = humanoid
+            end
+        end
     end
+end)
 
-    task.defer(refreshPlayers)
-end))
-
--- CLEANUP
-addConnection(gui.Destroying:Connect(function()
-    stopTween()
-    stopFollow()
-    stopAimLock()
-
-    for _, connection in ipairs(connections) do
-        connection:Disconnect()
-    end
-
-    RunService:UnbindFromRenderStep(CAMERA_BIND)
-end))
-
+--==================================================
 -- INITIALIZE
-refreshPlayers()
+--==================================================
 
-print("NEON CYBER loaded successfully")
+refreshPlayers()
+refreshSelectedLabel()
+updateZoomText()
+setStatus("Select a player to begin.")
+
+print("NEON CYBER CONTROL CENTER V2 loaded.")
