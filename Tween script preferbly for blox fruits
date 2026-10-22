@@ -1,0 +1,1058 @@
+-- NEON CYBER FOLLOW + CAMERA LOCK-ON
+-- One LocalScript in StarterPlayer > StarterPlayerScripts
+-- Shared player selection, smooth camera, zoom, noclip, respawn support.
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+
+local me = Players.LocalPlayer
+local guiParent = me:WaitForChild("PlayerGui")
+
+-- CONFIGURATION
+local SPEED_MAX = 200
+local FOLLOW_DISTANCE = 4
+
+local CAMERA_DISTANCE = 12
+local MIN_DISTANCE = 5
+local MAX_DISTANCE = 35
+local ZOOM_STEP = 2
+
+local CAMERA_HEIGHT = 3
+local AIM_HEIGHT = -2.5
+
+local POSITION_SMOOTHNESS = 35
+local ROTATION_SMOOTHNESS = 35
+local ZOOM_SMOOTHNESS = 12
+
+local CAMERA_BIND = "NeonFollow_CameraLock"
+
+-- Remove previous copies of these GUIs.
+for _, name in ipairs({"FollowGui", "ClassHub"}) do
+    local old = guiParent:FindFirstChild(name)
+    if old then
+        old:Destroy()
+    end
+end
+
+-- SHARED STATE
+local selected
+local running = false
+local cameraLocked = false
+local speed = SPEED_MAX
+
+local loop
+local force
+local attachment
+local controlledRoot
+local oldAutoRotate
+
+local noclipConnection
+local originalCollisions = {}
+
+local savedCameraType
+local savedCameraSubject
+local savedCameraCFrame
+local activeCamera
+
+local currentPosition
+local currentLook
+local currentDistance = CAMERA_DISTANCE
+local desiredDistance = CAMERA_DISTANCE
+
+local cameraButton
+
+-- NEON COLORS
+local BG = Color3.fromRGB(10, 12, 25)
+local PANEL = Color3.fromRGB(19, 22, 43)
+local CARD = Color3.fromRGB(27, 31, 57)
+local PURPLE = Color3.fromRGB(151, 76, 255)
+local CYAN = Color3.fromRGB(0, 238, 255)
+local WHITE = Color3.fromRGB(241, 245, 255)
+local MUTED = Color3.fromRGB(151, 166, 201)
+local RED = Color3.fromRGB(255, 65, 110)
+local GREEN = Color3.fromRGB(40, 220, 160)
+
+-- GUI HELPERS
+local function new(class, props, parent)
+    local obj = Instance.new(class)
+
+    for k, v in pairs(props) do
+        obj[k] = v
+    end
+
+    obj.Parent = parent
+    return obj
+end
+
+local function corner(obj, radius)
+    new("UICorner", {
+        CornerRadius = UDim.new(0, radius)
+    }, obj)
+end
+
+local function stroke(obj, color, thickness)
+    return new("UIStroke", {
+        Color = color,
+        Thickness = thickness or 1,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    }, obj)
+end
+
+local function gradient(obj, a, b, rotation)
+    new("UIGradient", {
+        Color = ColorSequence.new(a, b),
+        Rotation = rotation or 0
+    }, obj)
+end
+
+local function drag(handle, target)
+    local active
+    local startPosition
+    local origin
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+
+        active = true
+        startPosition = input.Position
+        origin = target.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                active = false
+            end
+        end)
+    end)
+
+    UIS.InputChanged:Connect(function(input)
+        if not active then
+            return
+        end
+
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+
+            local delta = input.Position - startPosition
+
+            target.Position = UDim2.new(
+                origin.X.Scale,
+                origin.X.Offset + delta.X,
+                origin.Y.Scale,
+                origin.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+local function getCharacterParts(player)
+    if not player then
+        return nil, nil, nil
+    end
+
+    local character = player.Character
+    if not character then
+        return nil, nil, nil
+    end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local root = character:FindFirstChild("HumanoidRootPart")
+
+    if not humanoid or not root or humanoid.Health <= 0 then
+        return nil, nil, nil
+    end
+
+    return character, humanoid, root
+end
+
+-- MAIN GUI
+local gui = new("ScreenGui", {
+    Name = "FollowGui",
+    ResetOnSpawn = false,
+    IgnoreGuiInset = true,
+    DisplayOrder = 999999,
+    ZIndexBehavior = Enum.ZIndexBehavior.Global
+}, guiParent)
+
+-- FLOATING OPEN BUTTON
+local open = new("TextButton", {
+    Size = UDim2.fromOffset(145, 44),
+    Position = UDim2.new(0, 24, 0.5, -22),
+    BackgroundColor3 = PURPLE,
+    Text = "✦  OPEN FOLLOW",
+    TextColor3 = WHITE,
+    Font = Enum.Font.GothamBold,
+    TextSize = 13,
+    ZIndex = 100
+}, gui)
+
+corner(open, 12)
+gradient(open, PURPLE, Color3.fromRGB(70, 65, 255), 20)
+stroke(open, CYAN, 1.5)
+drag(open, open)
+
+-- FLOATING START / STOP
+local quick = new("TextButton", {
+    Size = UDim2.fromOffset(160, 44),
+    Position = UDim2.new(0, 180, 0.5, -22),
+    BackgroundColor3 = CARD,
+    Text = "▶  SELECT PLAYER",
+    TextColor3 = MUTED,
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+    ZIndex = 100
+}, gui)
+
+corner(quick, 12)
+stroke(quick, PURPLE, 1.5)
+drag(quick, quick)
+
+-- MAIN PANEL
+local panel = new("Frame", {
+    Size = UDim2.fromOffset(320, 470),
+    Position = UDim2.new(0, 24, 0.5, -235),
+    BackgroundColor3 = BG,
+    Visible = false,
+    ZIndex = 10
+}, gui)
+
+corner(panel, 16)
+stroke(panel, PURPLE, 1.5)
+
+local bar = new("Frame", {
+    Size = UDim2.new(1, 0, 0, 58),
+    BackgroundColor3 = PANEL,
+    BorderSizePixel = 0,
+    ZIndex = 11
+}, panel)
+
+corner(bar, 15)
+gradient(bar, Color3.fromRGB(38, 24, 78),
+    Color3.fromRGB(15, 37, 64), 0)
+
+new("Frame", {
+    Size = UDim2.new(1, 0, 0, 15),
+    Position = UDim2.new(0, 0, 1, -15),
+    BackgroundColor3 = Color3.fromRGB(15, 32, 61),
+    BorderSizePixel = 0,
+    ZIndex = 11
+}, bar)
+
+new("Frame", {
+    Size = UDim2.new(1, -28, 0, 2),
+    Position = UDim2.new(0, 14, 1, -3),
+    BackgroundColor3 = CYAN,
+    BorderSizePixel = 0,
+    ZIndex = 12
+}, bar)
+
+new("TextLabel", {
+    Size = UDim2.new(1, -60, 0, 25),
+    Position = UDim2.fromOffset(15, 8),
+    BackgroundTransparency = 1,
+    Text = "N E O N  /  F O L L O W",
+    TextColor3 = WHITE,
+    Font = Enum.Font.GothamBold,
+    TextSize = 14,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 12
+}, bar)
+
+new("TextLabel", {
+    Size = UDim2.new(1, -60, 0, 15),
+    Position = UDim2.fromOffset(15, 32),
+    BackgroundTransparency = 1,
+    Text = "FOLLOW + CAMERA TRACKING",
+    TextColor3 = CYAN,
+    Font = Enum.Font.Code,
+    TextSize = 9,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 12
+}, bar)
+
+local close = new("TextButton", {
+    Size = UDim2.fromOffset(32, 32),
+    Position = UDim2.new(1, -42, 0, 12),
+    BackgroundColor3 = Color3.fromRGB(64, 25, 57),
+    Text = "×",
+    TextColor3 = RED,
+    Font = Enum.Font.GothamBold,
+    TextSize = 23,
+    ZIndex = 13
+}, bar)
+
+corner(close, 9)
+stroke(close, RED, 1)
+drag(bar, panel)
+
+new("TextLabel", {
+    Size = UDim2.new(1, -28, 0, 22),
+    Position = UDim2.fromOffset(14, 67),
+    BackgroundTransparency = 1,
+    Text = "◈  MOVEMENT SPEED / MAX 200",
+    TextColor3 = CYAN,
+    Font = Enum.Font.GothamBold,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 12
+}, panel)
+
+local speedBox = new("TextBox", {
+    Size = UDim2.new(1, -28, 0, 38),
+    Position = UDim2.fromOffset(14, 92),
+    BackgroundColor3 = CARD,
+    Text = "200",
+    TextColor3 = WHITE,
+    Font = Enum.Font.Code,
+    TextSize = 16,
+    ClearTextOnFocus = false,
+    ZIndex = 12
+}, panel)
+
+corner(speedBox, 9)
+stroke(speedBox, PURPLE, 1)
+
+new("TextLabel", {
+    Size = UDim2.new(1, -28, 0, 22),
+    Position = UDim2.fromOffset(14, 137),
+    BackgroundTransparency = 1,
+    Text = "◈  TARGET SELECT",
+    TextColor3 = CYAN,
+    Font = Enum.Font.GothamBold,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 12
+}, panel)
+
+local list = new("ScrollingFrame", {
+    Size = UDim2.new(1, -28, 0, 145),
+    Position = UDim2.fromOffset(14, 163),
+    BackgroundColor3 = PANEL,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = CYAN,
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    CanvasSize = UDim2.new(),
+    ZIndex = 12
+}, panel)
+
+corner(list, 10)
+stroke(list, Color3.fromRGB(74, 65, 137), 1)
+
+new("UIPadding", {
+    PaddingTop = UDim.new(0, 7),
+    PaddingLeft = UDim.new(0, 7),
+    PaddingRight = UDim.new(0, 7),
+    PaddingBottom = UDim.new(0, 7)
+}, list)
+
+new("UIListLayout", {
+    Padding = UDim.new(0, 6),
+    SortOrder = Enum.SortOrder.Name
+}, list)
+
+-- CAMERA ZOOM CONTROLS
+local zoomLabel = new("TextLabel", {
+    Size = UDim2.new(1, -28, 0, 22),
+    Position = UDim2.fromOffset(14, 315),
+    BackgroundTransparency = 1,
+    Text = "Camera distance: 12",
+    TextColor3 = MUTED,
+    Font = Enum.Font.Gotham,
+    TextSize = 12,
+    ZIndex = 12
+}, panel)
+
+local zoomOut = new("TextButton", {
+    Size = UDim2.new(0.5, -18, 0, 32),
+    Position = UDim2.fromOffset(14, 339),
+    BackgroundColor3 = CARD,
+    Text = "−  ZOOM OUT",
+    TextColor3 = WHITE,
+    Font = Enum.Font.GothamBold,
+    TextSize = 11,
+    ZIndex = 12
+}, panel)
+
+corner(zoomOut, 8)
+stroke(zoomOut, PURPLE, 1)
+
+local zoomIn = new("TextButton", {
+    Size = UDim2.new(0.5, -18, 0, 32),
+    Position = UDim2.new(0.5, 4, 0, 339),
+    BackgroundColor3 = CARD,
+    Text = "+  ZOOM IN",
+    TextColor3 = WHITE,
+    Font = Enum.Font.GothamBold,
+    TextSize = 11,
+    ZIndex = 12
+}, panel)
+
+corner(zoomIn, 8)
+stroke(zoomIn, CYAN, 1)
+
+cameraButton = new("TextLabel", {
+    Size = UDim2.new(1, -28, 0, 20),
+    Position = UDim2.fromOffset(14, 377),
+    BackgroundTransparency = 1,
+    Text = "CAMERA LOCK: OFF",
+    TextColor3 = MUTED,
+    Font = Enum.Font.GothamBold,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 12
+}, panel)
+
+local stop = new("TextButton", {
+    Size = UDim2.new(0.48, -3, 0, 40),
+    Position = UDim2.new(0, 14, 1, -53),
+    BackgroundColor3 = Color3.fromRGB(61, 20, 43),
+    Text = "■  STOP",
+    TextColor3 = RED,
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+    ZIndex = 12
+}, panel)
+
+corner(stop, 10)
+stroke(stop, RED, 1)
+
+local refresh = new("TextButton", {
+    Size = UDim2.new(0.48, -3, 0, 40),
+    Position = UDim2.new(0.52, -3, 1, -53),
+    BackgroundColor3 = Color3.fromRGB(31, 37, 79),
+    Text = "↻  REFRESH",
+    TextColor3 = CYAN,
+    Font = Enum.Font.GothamBold,
+    TextSize = 12,
+    ZIndex = 12
+}, panel)
+
+corner(refresh, 10)
+stroke(refresh, CYAN, 1)
+
+-- STATUS DISPLAY
+local status = new("TextLabel", {
+    Size = UDim2.new(1, -28, 0, 18),
+    Position = UDim2.fromOffset(14, 402),
+    BackgroundTransparency = 1,
+    Text = "Select a player",
+    TextColor3 = MUTED,
+    Font = Enum.Font.Gotham,
+    TextSize = 10,
+    TextTruncate = Enum.TextTruncate.AtEnd,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 12
+}, panel)
+
+-- Keep the bottom buttons above the status on smaller screens.
+stop.Position = UDim2.new(0, 14, 1, -53)
+refresh.Position = UDim2.new(0.52, -3, 1, -53)
+
+-- CAMERA FUNCTIONS
+local function updateCameraLabel()
+    cameraButton.Text = cameraLocked
+        and "CAMERA LOCK: ON"
+        or "CAMERA LOCK: OFF"
+
+    cameraButton.TextColor3 = cameraLocked and CYAN or MUTED
+end
+
+local function updateZoomLabel()
+    zoomLabel.Text = "Camera distance: "
+        .. tostring(math.floor(desiredDistance))
+end
+
+local function changeZoom(amount)
+    desiredDistance = math.clamp(
+        desiredDistance + amount,
+        MIN_DISTANCE,
+        MAX_DISTANCE
+    )
+
+    updateZoomLabel()
+end
+
+local function stopCameraLock()
+    if not cameraLocked then
+        return
+    end
+
+    cameraLocked = false
+    RunService:UnbindFromRenderStep(CAMERA_BIND)
+
+    local camera = workspace.CurrentCamera
+    local _, localHumanoid = getCharacterParts(me)
+
+    if camera then
+        if savedCameraType then
+            camera.CameraType = savedCameraType
+        else
+            camera.CameraType = Enum.CameraType.Custom
+        end
+
+        -- Prefer the current character's Humanoid after a respawn.
+        if localHumanoid then
+            camera.CameraSubject = localHumanoid
+        elseif savedCameraSubject
+            and savedCameraSubject.Parent then
+            camera.CameraSubject = savedCameraSubject
+        end
+
+        if savedCameraCFrame then
+            camera.CFrame = savedCameraCFrame
+        end
+    end
+
+    activeCamera = nil
+    savedCameraType = nil
+    savedCameraSubject = nil
+    savedCameraCFrame = nil
+
+    currentPosition = nil
+    currentLook = nil
+
+    updateCameraLabel()
+end
+
+local function startCameraLock(target)
+    if not target or target == me then
+        return false
+    end
+
+    if cameraLocked then
+        stopCameraLock()
+    end
+
+    local camera = workspace.CurrentCamera
+    if not camera then
+        status.Text = "Camera unavailable"
+        return false
+    end
+
+    savedCameraType = camera.CameraType
+    savedCameraSubject = camera.CameraSubject
+    savedCameraCFrame = camera.CFrame
+
+    activeCamera = camera
+    currentDistance = desiredDistance
+    currentPosition = camera.CFrame.Position
+    currentLook = camera.CFrame.LookVector
+
+    cameraLocked = true
+    camera.CameraType = Enum.CameraType.Scriptable
+    updateCameraLabel()
+
+    RunService:BindToRenderStep(
+        CAMERA_BIND,
+        Enum.RenderPriority.Camera.Value + 1,
+        function(dt)
+            if not cameraLocked then
+                return
+            end
+
+            local currentCamera = workspace.CurrentCamera
+            if not currentCamera then
+                return
+            end
+
+            -- Roblox can replace the camera during respawn.
+            if currentCamera ~= activeCamera then
+                activeCamera = currentCamera
+                currentPosition = currentCamera.CFrame.Position
+                currentLook = currentCamera.CFrame.LookVector
+            end
+
+            local _, _, localRoot = getCharacterParts(me)
+            local _, _, targetRoot = getCharacterParts(target)
+
+            -- Wait for either character to become available again.
+            if not localRoot or not targetRoot then
+                return
+            end
+
+            currentCamera.CameraType = Enum.CameraType.Scriptable
+
+            local zoomAlpha = 1 - math.exp(-ZOOM_SMOOTHNESS * dt)
+            currentDistance = currentDistance
+                + (desiredDistance - currentDistance) * zoomAlpha
+
+            -- Camera follows YOUR character while looking at the target.
+            local desiredPosition =
+                localRoot.Position
+                - localRoot.CFrame.LookVector * currentDistance
+                + Vector3.new(0, CAMERA_HEIGHT, 0)
+
+            local aimPoint = targetRoot.Position
+                + Vector3.new(0, AIM_HEIGHT, 0)
+
+            local offset = aimPoint - desiredPosition
+            if offset.Magnitude < 0.001 then
+                return
+            end
+
+            local desiredLook = offset.Unit
+
+            local positionAlpha =
+                1 - math.exp(-POSITION_SMOOTHNESS * dt)
+
+            local rotationAlpha =
+                1 - math.exp(-ROTATION_SMOOTHNESS * dt)
+
+            currentPosition = currentPosition:Lerp(
+                desiredPosition,
+                positionAlpha
+            )
+
+            currentLook = currentLook:Lerp(
+                desiredLook,
+                rotationAlpha
+            )
+
+            if currentLook.Magnitude > 0.001 then
+                currentCamera.CFrame = CFrame.lookAt(
+                    currentPosition,
+                    currentPosition + currentLook.Unit
+                )
+            end
+        end
+    )
+
+    return true
+end
+
+-- NOCLIP
+local function restoreCollisions()
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+
+    for part, original in pairs(originalCollisions) do
+        if part and part.Parent then
+            part.CanCollide = original
+        end
+    end
+
+    table.clear(originalCollisions)
+end
+
+local function applyNoclip(character)
+    restoreCollisions()
+
+    if not running or not character then
+        return
+    end
+
+    local function disableCollision(part)
+        if not part:IsA("BasePart") or not running then
+            return
+        end
+
+        if originalCollisions[part] == nil then
+            originalCollisions[part] = part.CanCollide
+        end
+
+        part.CanCollide = false
+    end
+
+    for _, part in ipairs(character:GetDescendants()) do
+        disableCollision(part)
+    end
+
+    noclipConnection = RunService.Stepped:Connect(function()
+        if not running then
+            return
+        end
+
+        local characterNow = me.Character
+        if not characterNow then
+            return
+        end
+
+        for _, part in ipairs(characterNow:GetDescendants()) do
+            disableCollision(part)
+        end
+    end)
+end
+
+-- UI STATE
+local function updateQuick()
+    if running and selected then
+        quick.Text = "■  STOP: " .. selected.Name
+        quick.TextColor3 = RED
+        quick.BackgroundColor3 = Color3.fromRGB(61, 20, 43)
+    elseif selected then
+        quick.Text = "▶  START: " .. selected.Name
+        quick.TextColor3 = GREEN
+        quick.BackgroundColor3 = CARD
+    else
+        quick.Text = "▶  SELECT PLAYER"
+        quick.TextColor3 = MUTED
+        quick.BackgroundColor3 = CARD
+    end
+end
+
+local function updateSelectionStatus()
+    if selected then
+        status.Text = "Selected: " .. selected.DisplayName
+    else
+        status.Text = "Select a player"
+    end
+end
+
+-- STOP FOLLOW AND CAMERA TOGETHER
+local function cleanup()
+    running = false
+
+    if loop then
+        loop:Disconnect()
+        loop = nil
+    end
+
+    stopCameraLock()
+    restoreCollisions()
+
+    if force then
+        force:Destroy()
+        force = nil
+    end
+
+    if attachment then
+        attachment:Destroy()
+        attachment = nil
+    end
+
+    local character = me.Character
+    local humanoid = character
+        and character:FindFirstChildOfClass("Humanoid")
+
+    if humanoid and oldAutoRotate ~= nil then
+        humanoid.AutoRotate = oldAutoRotate
+    end
+
+    controlledRoot = nil
+    oldAutoRotate = nil
+
+    updateQuick()
+end
+
+-- CREATE MOVEMENT OBJECTS FOR CURRENT CHARACTER
+local function attachMovement(character)
+    if not running or not character then
+        return false
+    end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local root = character:FindFirstChild("HumanoidRootPart")
+
+    if not humanoid or not root or humanoid.Health <= 0 then
+        return false
+    end
+
+    if force then
+        force:Destroy()
+        force = nil
+    end
+
+    if attachment then
+        attachment:Destroy()
+        attachment = nil
+    end
+
+    controlledRoot = root
+    oldAutoRotate = humanoid.AutoRotate
+    humanoid.AutoRotate = false
+
+    attachment = Instance.new("Attachment")
+    attachment.Name = "LocalFollowAttachment"
+    attachment.Parent = root
+
+    force = Instance.new("VectorForce")
+    force.Name = "LocalFollowAntiGravity"
+    force.Attachment0 = attachment
+    force.RelativeTo = Enum.ActuatorRelativeTo.World
+    force.ApplyAtCenterOfMass = true
+    force.Parent = root
+
+    applyNoclip(character)
+
+    return true
+end
+
+-- START FOLLOW + CAMERA LOCK ON THE SAME TARGET
+local function startFollowing(target)
+    if not target or target == me or target.Parent ~= Players then
+        status.Text = "Select another player"
+        return
+    end
+
+    local _, humanoid, root = getCharacterParts(me)
+    local _, _, targetRoot = getCharacterParts(target)
+
+    if not humanoid or not root then
+        status.Text = "Your character isn't ready"
+        return
+    end
+
+    if not targetRoot then
+        status.Text = "Target character isn't ready"
+        return
+    end
+
+    if running then
+        cleanup()
+    end
+
+    selected = target
+
+    speed = math.clamp(
+        tonumber(speedBox.Text) or SPEED_MAX,
+        5,
+        SPEED_MAX
+    )
+
+    speedBox.Text = tostring(speed)
+
+    running = true
+
+    if not attachMovement(me.Character) then
+        running = false
+        status.Text = "Couldn't start movement"
+        updateQuick()
+        return
+    end
+
+    -- Automatically lock the camera onto this exact follow target.
+    startCameraLock(selected)
+
+    status.Text = "Following + camera: " .. selected.DisplayName
+    updateQuick()
+
+    loop = RunService.Heartbeat:Connect(function()
+        if not running then
+            return
+        end
+
+        if not selected or selected.Parent ~= Players then
+            cleanup()
+            selected = nil
+            updateQuick()
+            updateSelectionStatus()
+            return
+        end
+
+        local _, hum, myRoot = getCharacterParts(me)
+        local _, _, targetRootNow = getCharacterParts(selected)
+
+        -- Wait for character parts during respawn.
+        if not hum or not myRoot then
+            return
+        end
+
+        if not targetRootNow then
+            return
+        end
+
+        if myRoot ~= controlledRoot then
+            attachMovement(me.Character)
+        end
+
+        if force and myRoot == controlledRoot then
+            force.Force = Vector3.new(
+                0,
+                myRoot.AssemblyMass * workspace.Gravity,
+                0
+            )
+        end
+
+        -- Move toward the target's position, behind them.
+        local goal = targetRootNow.Position
+            - targetRootNow.CFrame.LookVector * FOLLOW_DISTANCE
+
+        local delta = goal - myRoot.Position
+        local step = math.min(delta.Magnitude, speed * RunService.Heartbeat:Wait() / (1/60))
+
+        -- Use the actual frame delta for consistent movement.
+        -- The Heartbeat event already fired, so cap movement by frame time.
+        if delta.Magnitude > 0.05 then
+            local nextPosition = myRoot.Position
+                + delta.Unit * math.min(delta.Magnitude, speed / 60)
+
+            myRoot.CFrame = CFrame.new(nextPosition)
+                * myRoot.CFrame.Rotation
+        end
+    end)
+end
+
+-- PLAYER LIST
+local function refreshPlayers()
+    for _, item in ipairs(list:GetChildren()) do
+        if item:IsA("TextButton") then
+            item:Destroy()
+        end
+    end
+
+    local others = {}
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= me then
+            table.insert(others, player)
+        end
+    end
+
+    table.sort(others, function(a, b)
+        return a.Name:lower() < b.Name:lower()
+    end)
+
+    for i, player in ipairs(others) do
+        local isSelected = player == selected
+
+        local button = new("TextButton", {
+            Name = string.format("%03d_%s", i, player.Name),
+            Size = UDim2.new(1, -4, 0, 36),
+            BackgroundColor3 = isSelected
+                and Color3.fromRGB(65, 45, 110)
+                or CARD,
+            Text = "  ◇  " .. player.Name
+                .. "  (@" .. player.DisplayName .. ")",
+            TextColor3 = WHITE,
+            TextSize = 11,
+            Font = Enum.Font.GothamMedium,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd,
+            AutoButtonColor = true,
+            ZIndex = 13
+        }, list)
+
+        corner(button, 8)
+        stroke(button, isSelected and CYAN or PURPLE, 1)
+
+        button.Activated:Connect(function()
+            -- If already following, don't silently change the camera target.
+            if running then
+                status.Text = "Stop following before changing target"
+                return
+            end
+
+            selected = player
+            updateQuick()
+            updateSelectionStatus()
+            refreshPlayers()
+        end)
+    end
+end
+
+-- BUTTONS
+open.Activated:Connect(function()
+    panel.Visible = true
+    open.Visible = false
+end)
+
+close.Activated:Connect(function()
+    panel.Visible = false
+    open.Visible = true
+end)
+
+quick.Activated:Connect(function()
+    if running then
+        cleanup()
+        status.Text = "Follow and camera stopped"
+    elseif selected and selected.Parent == Players then
+        startFollowing(selected)
+    else
+        panel.Visible = true
+        open.Visible = false
+        status.Text = "Select a player first"
+    end
+end)
+
+stop.Activated:Connect(function()
+    cleanup()
+    status.Text = "Follow and camera stopped"
+end)
+
+refresh.Activated:Connect(refreshPlayers)
+
+zoomIn.Activated:Connect(function()
+    changeZoom(-ZOOM_STEP)
+end)
+
+zoomOut.Activated:Connect(function()
+    changeZoom(ZOOM_STEP)
+end)
+
+-- Mouse wheel zoom while camera lock is active.
+UIS.InputChanged:Connect(function(input, gameProcessed)
+    if not cameraLocked or gameProcessed then
+        return
+    end
+
+    if input.UserInputType == Enum.UserInputType.MouseWheel then
+        if input.Position.Z > 0 then
+            changeZoom(-ZOOM_STEP)
+        elseif input.Position.Z < 0 then
+            changeZoom(ZOOM_STEP)
+        end
+    end
+end)
+
+speedBox.FocusLost:Connect(function()
+    speed = math.clamp(
+        tonumber(speedBox.Text) or SPEED_MAX,
+        5,
+        SPEED_MAX
+    )
+
+    speedBox.Text = tostring(speed)
+end)
+
+Players.PlayerAdded:Connect(function()
+    task.defer(refreshPlayers)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    if player == selected then
+        cleanup()
+        selected = nil
+        updateQuick()
+        updateSelectionStatus()
+    end
+
+    task.defer(refreshPlayers)
+end)
+
+-- KEEP FOLLOW + CAMERA ACTIVE THROUGH RESPAWNS
+me.CharacterAdded:Connect(function(character)
+    if not running then
+        return
+    end
+
+    task.spawn(function()
+        local root = character:WaitForChild("HumanoidRootPart", 10)
+        local humanoid = character:WaitForChild("Humanoid", 10)
+
+        if not running or me.Character ~= character
+            or not root or not humanoid then
+            return
+        end
+
+        attachMovement(character)
+
+        -- Camera lock remains enabled; the render loop picks up
+        -- the new character and camera automatically.
+        updateQuick()
+        updateCameraLabel()
+    end)
+end)
+
+-- INITIALIZE
+updateZoomLabel()
+refreshPlayers()
+updateQuick()
+updateSelectionStatus()
+updateCameraLabel()
