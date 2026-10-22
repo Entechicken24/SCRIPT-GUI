@@ -907,3 +907,131 @@ updateZoomText()
 setStatus("Select a player to begin.")
 
 print("NEON CYBER CONTROL CENTER V2 loaded.")
+
+--==================================================
+-- NEON CYBER SPEED CHANGER
+-- Paste at the VERY BOTTOM of your existing script.
+--==================================================
+
+local SPEED_MIN = 8
+local SPEED_MAX = 100
+local SPEED_STEP = 4
+local DEFAULT_SPEED = 16
+
+local currentSpeed = DEFAULT_SPEED
+
+-- Speed panel
+local speedPanel = Instance.new("Frame")
+speedPanel.Name = "SpeedChanger"
+speedPanel.Size = UDim2.new(0, 220, 0, 145)
+speedPanel.Position = UDim2.new(0, 22, 0.5, 245)
+speedPanel.BackgroundColor3 = Theme.BG
+speedPanel.BorderSizePixel = 0
+speedPanel.ZIndex = 20
+speedPanel.Parent = gui
+
+corner(speedPanel, 12)
+stroke(speedPanel, Theme.Cyan, 1.5)
+
+-- Draggable header
+local speedHeader = Instance.new("TextLabel")
+speedHeader.Name = "DragHeader"
+speedHeader.Size = UDim2.new(1, 0, 0, 35)
+speedHeader.BackgroundColor3 = Theme.Panel
+speedHeader.BorderSizePixel = 0
+speedHeader.Text = "  SPEED CONTROL"
+speedHeader.TextColor3 = Theme.Cyan
+speedHeader.TextSize = 12
+speedHeader.Font = Enum.Font.GothamBold
+speedHeader.TextXAlignment = Enum.TextXAlignment.Left
+speedHeader.ZIndex = 21
+speedHeader.Parent = speedPanel
+
+corner(speedHeader, 10)
+
+-- Drag the speed panel by its header
+makeDraggable(speedHeader, speedPanel)
+
+local speedValue = Instance.new("TextLabel")
+speedValue.Name = "SpeedValue"
+speedValue.Position = UDim2.new(0, 10, 0, 42)
+speedValue.Size = UDim2.new(1, -20, 0, 25)
+speedValue.BackgroundTransparency = 1
+speedValue.Text = "WALKSPEED: 16"
+speedValue.TextColor3 = Theme.White
+speedValue.TextSize = 13
+speedValue.Font = Enum.Font.GothamBold
+speedValue.ZIndex = 21
+speedValue.Parent = speedPanel
+
+local speedMinus = button(
+    speedPanel,
+    "-",
+    UDim2.new(0, 10, 0, 76),
+    UDim2.new(0, 45, 0, 30),
+    Theme.Purple
+)
+speedMinus.ZIndex = 22
+
+local speedPlus = button(
+    speedPanel,
+    "+",
+    UDim2.new(0, 65, 0, 76),
+    UDim2.new(0, 45, 0, 30),
+    Theme.Cyan
+)
+speedPlus.ZIndex = 22
+
+local speedReset = button(
+    speedPanel,
+    "RESET",
+    UDim2.new(0, 120, 0, 76),
+    UDim2.new(0, 90, 0, 30),
+    Theme.Green
+)
+speedReset.ZIndex = 22
+
+local function applySpeed()
+    local character = Me.Character
+    local humanoid = character
+        and character:FindFirstChildOfClass("Humanoid")
+
+    if humanoid then
+        humanoid.WalkSpeed = currentSpeed
+    end
+
+    speedValue.Text = "WALKSPEED: " .. currentSpeed
+end
+
+speedMinus.Activated:Connect(function()
+    currentSpeed = math.clamp(
+        currentSpeed - SPEED_STEP,
+        SPEED_MIN,
+        SPEED_MAX
+    )
+    applySpeed()
+end)
+
+speedPlus.Activated:Connect(function()
+    currentSpeed = math.clamp(
+        currentSpeed + SPEED_STEP,
+        SPEED_MIN,
+        SPEED_MAX
+    )
+    applySpeed()
+end)
+
+speedReset.Activated:Connect(function()
+    currentSpeed = DEFAULT_SPEED
+    applySpeed()
+end)
+
+Me.CharacterAdded:Connect(function(character)
+    local humanoid = character:WaitForChild("Humanoid", 10)
+    if humanoid then
+        humanoid.WalkSpeed = currentSpeed
+        speedValue.Text = "WALKSPEED: " .. currentSpeed
+    end
+end)
+
+applySpeed()
