@@ -1,77 +1,91 @@
 
---// NEON CYBER CONTROL CENTER
---// Full standalone LocalScript for your own Roblox Studio experience
---// Luxury black + gold UI | SPS input | Smooth movement | Camera tracking
+--========================================================
+-- NEON CYBER CONTROL CENTER | MOBILE GOLD EDITION
+-- Complete standalone LocalScript for Roblox Studio
+--========================================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local localPlayer = Players.LocalPlayer
+local playerGui = localPlayer:WaitForChild("PlayerGui")
 
---==================================================
--- CONFIG
---==================================================
-
+-- SETTINGS
 local DEFAULT_SPEED = 200
 local MIN_SPEED = 5
 local MAX_SPEED = 1000
 local SPEED_STEP = 25
 local FOLLOW_DISTANCE = 4
-local CAMERA_SMOOTHNESS = 3
+local CAMERA_SMOOTHNESS = 4
 
-local GOLD = Color3.fromRGB(225, 183, 92)
-local PALE_GOLD = Color3.fromRGB(255, 222, 150)
+-- THEME
+local GOLD = Color3.fromRGB(222, 181, 91)
+local LIGHT_GOLD = Color3.fromRGB(255, 226, 157)
 local BLACK = Color3.fromRGB(10, 10, 12)
-local PANEL = Color3.fromRGB(19, 19, 22)
-local INNER = Color3.fromRGB(29, 28, 30)
-local MUTED = Color3.fromRGB(165, 157, 139)
-local WHITE = Color3.fromRGB(245, 240, 225)
+local PANEL = Color3.fromRGB(20, 20, 23)
+local INNER = Color3.fromRGB(32, 30, 29)
+local MUTED = Color3.fromRGB(166, 157, 139)
+local WHITE = Color3.fromRGB(246, 241, 230)
 
+-- STATE
 local selectedPlayer
 local travelSpeed = DEFAULT_SPEED
 local movementActive = false
 local cameraTracking = false
-local cameraConnection
+local panelOpen = true
+local destroyed = false
 
 local velocityConstraint
 local rootAttachment
 local activeRoot
+local cameraConnection
 
---==================================================
+local originalCameraOffset
+local cameraHumanoid
+local cameraOffset = Vector3.zero
+
+-- CLEAN UP AN OLDER COPY
+local oldGui = playerGui:FindFirstChild("NeonCyberControlCenter")
+if oldGui then
+	oldGui:Destroy()
+end
+
+--========================================================
 -- HELPERS
---==================================================
+--========================================================
 
-local function make(className, props, parent)
-	local obj = Instance.new(className)
-	for key, value in pairs(props) do
-		obj[key] = value
+local function create(className, properties, parent)
+	local object = Instance.new(className)
+
+	for key, value in pairs(properties) do
+		object[key] = value
 	end
-	obj.Parent = parent
-	return obj
+
+	object.Parent = parent
+	return object
 end
 
-local function corner(obj, radius)
-	make("UICorner", {
+local function addCorner(object, radius)
+	create("UICorner", {
 		CornerRadius = UDim.new(0, radius or 8)
-	}, obj)
+	}, object)
 end
 
-local function stroke(obj, color, thickness, transparency)
-	make("UIStroke", {
+local function addStroke(object, color, thickness, transparency)
+	create("UIStroke", {
 		Color = color or GOLD,
 		Thickness = thickness or 1,
-		Transparency = transparency or 0.35
-	}, obj)
+		Transparency = transparency or 0.3
+	}, object)
 end
 
-local function getParts(player)
-	if not player then return nil, nil end
+local function getCharacterParts(player)
+	if not player or not player.Character then
+		return nil, nil
+	end
 
 	local character = player.Character
-	if not character then return nil, nil end
-
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	local root = character:FindFirstChild("HumanoidRootPart")
 
@@ -82,64 +96,79 @@ local function getParts(player)
 	return humanoid, root
 end
 
-local function clampSpeed(value)
-	value = tonumber(value) or travelSpeed
-	travelSpeed = math.clamp(math.floor(value + 0.5), MIN_SPEED, MAX_SPEED)
+local function setSpeed(value)
+	local parsed = tonumber(value)
+
+	if not parsed then
+		parsed = travelSpeed
+	end
+
+	travelSpeed = math.clamp(
+		math.floor(parsed + 0.5),
+		MIN_SPEED,
+		MAX_SPEED
+	)
 end
 
---==================================================
--- GUI
---==================================================
+--========================================================
+-- MAIN GUI
+--========================================================
 
-local previous = PlayerGui:FindFirstChild("NeonCyberControlCenter")
-if previous then previous:Destroy() end
-
-local gui = make("ScreenGui", {
+local gui = create("ScreenGui", {
 	Name = "NeonCyberControlCenter",
 	ResetOnSpawn = false,
 	IgnoreGuiInset = false,
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-}, PlayerGui)
+}, playerGui)
 
-local main = make("Frame", {
+local main = create("Frame", {
 	Name = "MainPanel",
-	Size = UDim2.fromOffset(360, 530),
-	Position = UDim2.new(0, 30, 0.5, -265),
+	AnchorPoint = Vector2.new(0, 0.5),
+	Position = UDim2.new(0, 12, 0.5, 0),
+	Size = UDim2.new(0, 350, 0, 550),
 	BackgroundColor3 = PANEL,
-	BorderSizePixel = 0
+	BorderSizePixel = 0,
+	ClipsDescendants = true
 }, gui)
-corner(main, 14)
-stroke(main, GOLD, 1.5, 0.12)
 
-make("UIGradient", {
+addCorner(main, 15)
+addStroke(main, GOLD, 1.5, 0.12)
+
+create("UISizeConstraint", {
+	MinSize = Vector2.new(280, 430),
+	MaxSize = Vector2.new(350, 550)
+}, main)
+
+create("UIGradient", {
 	Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(30, 27, 22)),
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(31, 28, 23)),
 		ColorSequenceKeypoint.new(1, BLACK)
 	}),
 	Rotation = 90
 }, main)
 
-local header = make("Frame", {
-	Size = UDim2.new(1, 0, 0, 55),
+-- HEADER
+local header = create("Frame", {
+	Name = "Header",
+	Size = UDim2.new(1, 0, 0, 57),
 	BackgroundColor3 = BLACK,
 	BorderSizePixel = 0
 }, main)
-corner(header, 14)
 
-make("TextLabel", {
-	Position = UDim2.fromOffset(16, 6),
-	Size = UDim2.new(1, -65, 0, 27),
+create("TextLabel", {
+	Position = UDim2.fromOffset(15, 5),
+	Size = UDim2.new(1, -65, 0, 28),
 	BackgroundTransparency = 1,
 	Text = "NEON CYBER",
-	TextColor3 = PALE_GOLD,
+	TextColor3 = LIGHT_GOLD,
 	TextSize = 20,
 	Font = Enum.Font.GothamBlack,
 	TextXAlignment = Enum.TextXAlignment.Left
 }, header)
 
-make("TextLabel", {
-	Position = UDim2.fromOffset(17, 32),
-	Size = UDim2.new(1, -65, 0, 14),
+create("TextLabel", {
+	Position = UDim2.fromOffset(16, 32),
+	Size = UDim2.new(1, -65, 0, 15),
 	BackgroundTransparency = 1,
 	Text = "C O N T R O L   C E N T E R",
 	TextColor3 = MUTED,
@@ -148,79 +177,175 @@ make("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Left
 }, header)
 
-local closeButton = make("TextButton", {
-	Position = UDim2.new(1, -42, 0, 12),
-	Size = UDim2.fromOffset(28, 28),
+local closeButton = create("TextButton", {
+	Name = "MinimizeButton",
+	Position = UDim2.new(1, -43, 0, 12),
+	Size = UDim2.fromOffset(30, 30),
 	Text = "×",
 	TextSize = 23,
 	Font = Enum.Font.Gotham,
-	TextColor3 = PALE_GOLD,
+	TextColor3 = LIGHT_GOLD,
 	BackgroundColor3 = INNER,
-	BorderSizePixel = 0
+	BorderSizePixel = 0,
+	AutoButtonColor = true
 }, header)
-corner(closeButton, 7)
-stroke(closeButton, GOLD, 1, 0.4)
 
-local function addLabel(text, pos, size, color, textSize)
-	return make("TextLabel", {
-		Position = pos,
-		Size = size,
+addCorner(closeButton, 8)
+addStroke(closeButton, GOLD, 1, 0.35)
+
+-- FLOATING REOPEN BUTTON
+local reopenButton = create("TextButton", {
+	Name = "FloatingGoldButton",
+	AnchorPoint = Vector2.new(0, 0.5),
+	Position = UDim2.new(0, 16, 0.65, 0),
+	Size = UDim2.fromOffset(56, 56),
+	BackgroundColor3 = Color3.fromRGB(28, 24, 17),
+	BorderSizePixel = 0,
+	Text = "N",
+	TextColor3 = LIGHT_GOLD,
+	TextSize = 25,
+	Font = Enum.Font.GothamBlack,
+	Visible = false,
+	Active = true,
+	AutoButtonColor = true,
+	ZIndex = 20
+}, gui)
+
+addCorner(reopenButton, 28)
+addStroke(reopenButton, GOLD, 2, 0)
+
+-- Reopen button can be dragged on touch screens.
+local reopenDragging = false
+local reopenDragStart
+local reopenStartPosition
+local reopenMoved = false
+
+reopenButton.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Touch
+		or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		reopenDragging = true
+		reopenMoved = false
+		reopenDragStart = input.Position
+		reopenStartPosition = reopenButton.Position
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if not reopenDragging then return end
+
+	if input.UserInputType == Enum.UserInputType.Touch
+		or input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - reopenDragStart
+
+		if delta.Magnitude > 8 then
+			reopenMoved = true
+		end
+
+		if reopenMoved then
+			reopenButton.Position = UDim2.new(
+				reopenStartPosition.X.Scale,
+				reopenStartPosition.X.Offset + delta.X,
+				reopenStartPosition.Y.Scale,
+				reopenStartPosition.Y.Offset + delta.Y
+			)
+		end
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.Touch
+		or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		reopenDragging = false
+	end
+end)
+
+--========================================================
+-- RESPONSIVE PANEL CONTENT
+--========================================================
+
+local content = create("ScrollingFrame", {
+	Name = "Content",
+	Position = UDim2.fromOffset(0, 57),
+	Size = UDim2.new(1, 0, 1, -57),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 4,
+	ScrollBarImageColor3 = GOLD,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	CanvasSize = UDim2.new(0, 0, 0, 0)
+}, main)
+
+create("UIPadding", {
+	PaddingTop = UDim.new(0, 10),
+	PaddingBottom = UDim.new(0, 12),
+	PaddingLeft = UDim.new(0, 14),
+	PaddingRight = UDim.new(0, 14)
+}, content)
+
+create("UIListLayout", {
+	Padding = UDim.new(0, 8),
+	SortOrder = Enum.SortOrder.LayoutOrder
+}, content)
+
+local function addLabel(text, height, color, size)
+	return create("TextLabel", {
+		Size = UDim2.new(1, 0, 0, height),
 		BackgroundTransparency = 1,
 		Text = text,
 		TextColor3 = color or WHITE,
-		TextSize = textSize or 13,
+		TextSize = size or 12,
 		Font = Enum.Font.GothamMedium,
-		TextXAlignment = Enum.TextXAlignment.Left
-	}, main)
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextWrapped = true,
+		LayoutOrder = 0
+	}, content)
 end
 
-addLabel("PLAYER SELECTOR", UDim2.fromOffset(16, 64),
-	UDim2.fromOffset(200, 18), MUTED, 11)
+addLabel("PLAYER SELECTOR", 20, MUTED, 11).LayoutOrder = 1
 
-local playerList = make("ScrollingFrame", {
-	Name = "PlayerList",
-	Position = UDim2.fromOffset(16, 86),
-	Size = UDim2.new(1, -32, 0, 126),
+local playerList = create("ScrollingFrame", {
+	Name = "PlayerCards",
+	Size = UDim2.new(1, 0, 0, 140),
 	BackgroundColor3 = INNER,
 	BorderSizePixel = 0,
 	ScrollBarThickness = 4,
 	ScrollBarImageColor3 = GOLD,
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
-	CanvasSize = UDim2.new()
-}, main)
-corner(playerList, 8)
-stroke(playerList, GOLD, 1, 0.72)
+	CanvasSize = UDim2.new(0, 0, 0, 0),
+	LayoutOrder = 2
+}, content)
 
-make("UIPadding", {
+addCorner(playerList, 9)
+addStroke(playerList, GOLD, 1, 0.65)
+
+create("UIPadding", {
 	PaddingTop = UDim.new(0, 5),
 	PaddingBottom = UDim.new(0, 5),
 	PaddingLeft = UDim.new(0, 5),
 	PaddingRight = UDim.new(0, 5)
 }, playerList)
 
-make("UIListLayout", {
-	Padding = UDim.new(0, 4),
+create("UIListLayout", {
+	Padding = UDim.new(0, 5),
 	SortOrder = Enum.SortOrder.Name
 }, playerList)
 
-local targetLabel = addLabel("TARGET: NONE",
-	UDim2.fromOffset(16, 219), UDim2.new(1, -32, 0, 23), PALE_GOLD, 12)
+local targetLabel = addLabel("TARGET: NONE", 22, LIGHT_GOLD, 12)
+targetLabel.LayoutOrder = 3
 
-make("Frame", {
-	Position = UDim2.fromOffset(16, 250),
-	Size = UDim2.new(1, -32, 0, 1),
+local separator = create("Frame", {
+	Size = UDim2.new(1, 0, 0, 1),
 	BackgroundColor3 = GOLD,
-	BackgroundTransparency = 0.65,
-	BorderSizePixel = 0
-}, main)
+	BackgroundTransparency = 0.6,
+	BorderSizePixel = 0,
+	LayoutOrder = 4
+}, content)
 
-addLabel("TRAVEL SPEED", UDim2.fromOffset(16, 260),
-	UDim2.fromOffset(200, 20), PALE_GOLD, 13)
+addLabel("TRAVEL SPEED", 20, LIGHT_GOLD, 13).LayoutOrder = 5
 
-local speedBox = make("TextBox", {
+local speedBox = create("TextBox", {
 	Name = "SpeedInput",
-	Position = UDim2.fromOffset(16, 284),
-	Size = UDim2.new(1, -32, 0, 47),
+	Size = UDim2.new(1, 0, 0, 46),
 	BackgroundColor3 = INNER,
 	BorderSizePixel = 0,
 	Text = tostring(DEFAULT_SPEED),
@@ -229,121 +354,177 @@ local speedBox = make("TextBox", {
 	TextColor3 = WHITE,
 	PlaceholderColor3 = MUTED,
 	TextSize = 23,
-	Font = Enum.Font.GothamBold
-}, main)
-corner(speedBox, 9)
-stroke(speedBox, GOLD, 1.2, 0.25)
+	Font = Enum.Font.GothamBold,
+	LayoutOrder = 6
+}, content)
 
-addLabel("STUDS PER SECOND  •  RANGE 5–1000",
-	UDim2.fromOffset(17, 333),
-	UDim2.new(1, -34, 0, 17), MUTED, 10)
+addCorner(speedBox, 9)
+addStroke(speedBox, GOLD, 1.2, 0.25)
 
-local function makeButton(name, text, pos, size)
-	local b = make("TextButton", {
+addLabel("STUDS PER SECOND • RANGE 5–1000", 16, MUTED, 10).LayoutOrder = 7
+
+local function makeButton(name, text, height, order)
+	local button = create("TextButton", {
 		Name = name,
-		Position = pos,
-		Size = size,
-		BackgroundColor3 = Color3.fromRGB(37, 31, 22),
+		Size = UDim2.new(1, 0, 0, height),
+		BackgroundColor3 = Color3.fromRGB(39, 32, 21),
 		BorderSizePixel = 0,
 		Text = text,
-		TextColor3 = PALE_GOLD,
+		TextColor3 = LIGHT_GOLD,
 		TextSize = 14,
-		Font = Enum.Font.GothamSemibold
-	}, main)
-	corner(b, 8)
-	stroke(b, GOLD, 1, 0.45)
-	return b
+		Font = Enum.Font.GothamSemibold,
+		LayoutOrder = order,
+		AutoButtonColor = true
+	}, content)
+
+	addCorner(button, 8)
+	addStroke(button, GOLD, 1, 0.45)
+	return button
 end
 
-local minusButton = makeButton("MinusSpeed", "− 25 SPS",
-	UDim2.fromOffset(16, 356), UDim2.new(0.5, -22, 0, 43))
+local speedRow = create("Frame", {
+	Name = "SpeedButtons",
+	Size = UDim2.new(1, 0, 0, 44),
+	BackgroundTransparency = 1,
+	LayoutOrder = 8
+}, content)
 
-local plusButton = makeButton("PlusSpeed", "+ 25 SPS",
-	UDim2.new(0.5, 6, 0, 356), UDim2.new(0.5, -22, 0, 43))
+local minusButton = create("TextButton", {
+	Name = "MinusSpeed",
+	Size = UDim2.new(0.5, -4, 1, 0),
+	Position = UDim2.new(0, 0, 0, 0),
+	BackgroundColor3 = INNER,
+	BorderSizePixel = 0,
+	Text = "− 25 SPS",
+	TextColor3 = LIGHT_GOLD,
+	TextSize = 15,
+	Font = Enum.Font.GothamBold
+}, speedRow)
+addCorner(minusButton, 8)
+addStroke(minusButton, GOLD, 1, 0.4)
 
-local resetButton = makeButton("ResetSpeed", "RESET SPEED  •  200 SPS",
-	UDim2.fromOffset(16, 407), UDim2.new(1, -32, 0, 31))
+local plusButton = create("TextButton", {
+	Name = "PlusSpeed",
+	Size = UDim2.new(0.5, -4, 1, 0),
+	Position = UDim2.new(0.5, 4, 0, 0),
+	BackgroundColor3 = INNER,
+	BorderSizePixel = 0,
+	Text = "+ 25 SPS",
+	TextColor3 = LIGHT_GOLD,
+	TextSize = 15,
+	Font = Enum.Font.GothamBold
+}, speedRow)
+addCorner(plusButton, 8)
+addStroke(plusButton, GOLD, 1, 0.4)
 
-local moveButton = makeButton("MovementToggle", "START MOVE",
-	UDim2.fromOffset(16, 447), UDim2.new(0.5, -22, 0, 39))
+local resetButton = makeButton("ResetSpeed", "RESET SPEED • 200 SPS", 35, 9)
+local movementButton = makeButton("MovementToggle", "START MOVE", 42, 10)
+local cameraButton = makeButton("CameraToggle", "CAMERA TRACK: OFF", 42, 11)
 
-local cameraButton = makeButton("CameraToggle", "CAMERA: OFF",
-	UDim2.new(0.5, 6, 0, 447), UDim2.new(0.5, -22, 0, 39))
+local statusLabel = addLabel("SYSTEM READY • 200 SPS", 25, MUTED, 10)
+statusLabel.LayoutOrder = 12
 
-local statusLabel = addLabel("SYSTEM READY",
-	UDim2.fromOffset(16, 493), UDim2.new(1, -32, 0, 24), MUTED, 10)
+--========================================================
+-- MINIMIZE / REOPEN
+--========================================================
 
---==================================================
--- DRAG PANEL
---==================================================
+closeButton.Activated:Connect(function()
+	main.Visible = false
+	reopenButton.Visible = true
+	panelOpen = false
+end)
 
-local dragging = false
+reopenButton.Activated:Connect(function()
+	if reopenMoved then
+		reopenMoved = false
+		return
+	end
+
+	main.Visible = true
+	reopenButton.Visible = false
+	panelOpen = true
+end)
+
+--========================================================
+-- DRAG PANEL WITH TOUCH OR MOUSE
+--========================================================
+
+local panelDragging = false
+local panelDragStart
+local panelStartPosition
 local dragInput
-local dragStart
-local panelStart
 
 header.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch then
-		dragging = true
-		dragStart = input.Position
-		panelStart = main.Position
+	if input.UserInputType == Enum.UserInputType.Touch
+		or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		panelDragging = true
+		panelDragStart = input.Position
+		panelStartPosition = main.Position
 		dragInput = input
 	end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-	if dragging and (
-		input.UserInputType == Enum.UserInputType.MouseMovement
-		or input.UserInputType == Enum.UserInputType.Touch
-	) then
-		local delta = input.Position - dragStart
-		main.Position = UDim2.new(
-			panelStart.X.Scale, panelStart.X.Offset + delta.X,
-			panelStart.Y.Scale, panelStart.Y.Offset + delta.Y
-		)
+	if not panelDragging then return end
+
+	if input.UserInputType == Enum.UserInputType.Touch
+		or input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - panelDragStart
+		local camera = workspace.CurrentCamera
+		local viewport = camera and camera.ViewportSize
+
+		local newX = panelStartPosition.X.Offset + delta.X
+		local newY = panelStartPosition.Y.Offset + delta.Y
+
+		if viewport then
+			newX = math.clamp(newX, 0, math.max(0, viewport.X - main.AbsoluteSize.X))
+			newY = math.clamp(newY, main.AbsoluteSize.Y / 2,
+				math.max(main.AbsoluteSize.Y / 2, viewport.Y - main.AbsoluteSize.Y / 2))
+		end
+
+		main.Position = UDim2.new(0, newX, 0.5, newY - (viewport and viewport.Y / 2 or 0))
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
 	if input == dragInput
-		or input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch then
-		dragging = false
+		or input.UserInputType == Enum.UserInputType.Touch
+		or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		panelDragging = false
 	end
 end)
 
---==================================================
+--========================================================
 -- SPEED CONTROLS
---==================================================
+--========================================================
 
-local function updateSpeedBox()
+local function updateSpeed()
 	speedBox.Text = tostring(travelSpeed)
 end
 
 speedBox.FocusLost:Connect(function()
-	clampSpeed(speedBox.Text)
-	updateSpeedBox()
+	setSpeed(speedBox.Text)
+	updateSpeed()
 end)
 
 minusButton.Activated:Connect(function()
-	clampSpeed(travelSpeed - SPEED_STEP)
-	updateSpeedBox()
+	setSpeed(travelSpeed - SPEED_STEP)
+	updateSpeed()
 end)
 
 plusButton.Activated:Connect(function()
-	clampSpeed(travelSpeed + SPEED_STEP)
-	updateSpeedBox()
+	setSpeed(travelSpeed + SPEED_STEP)
+	updateSpeed()
 end)
 
 resetButton.Activated:Connect(function()
 	travelSpeed = DEFAULT_SPEED
-	updateSpeedBox()
+	updateSpeed()
 end)
 
---==================================================
--- PLAYER SELECTOR
---==================================================
+--========================================================
+-- PLAYER CARDS WITH ROBLOX AVATARS
+--========================================================
 
 local function refreshPlayers()
 	for _, child in ipairs(playerList:GetChildren()) do
@@ -353,26 +534,82 @@ local function refreshPlayers()
 	end
 
 	local list = Players:GetPlayers()
+
 	table.sort(list, function(a, b)
 		return a.Name:lower() < b.Name:lower()
 	end)
 
 	for _, player in ipairs(list) do
-		local entry = make("TextButton", {
-			Name = player.Name,
-			Size = UDim2.new(1, -4, 0, 30),
-			BackgroundColor3 = player == selectedPlayer
-				and Color3.fromRGB(64, 49, 25) or PANEL,
-			BorderSizePixel = 0,
-			Text = "  " .. player.DisplayName .. "  (@" .. player.Name .. ")",
-			TextColor3 = player == selectedPlayer and PALE_GOLD or WHITE,
-			TextSize = 11,
-			Font = Enum.Font.GothamMedium,
-			TextXAlignment = Enum.TextXAlignment.Left
-		}, playerList)
-		corner(entry, 6)
+		local isSelected = player == selectedPlayer
 
-		entry.Activated:Connect(function()
+		local card = create("TextButton", {
+			Name = "Player_" .. player.UserId,
+			Size = UDim2.new(1, -4, 0, 54),
+			BackgroundColor3 = isSelected
+				and Color3.fromRGB(62, 48, 25)
+				or Color3.fromRGB(24, 24, 27),
+			BorderSizePixel = 0,
+			Text = "",
+			AutoButtonColor = true,
+			LayoutOrder = 0
+		}, playerList)
+
+		addCorner(card, 8)
+		addStroke(card, GOLD, isSelected and 1.5 or 1, isSelected and 0.1 or 0.7)
+
+		local avatar = create("ImageLabel", {
+			Name = "Avatar",
+			Position = UDim2.fromOffset(5, 5),
+			Size = UDim2.fromOffset(42, 42),
+			BackgroundColor3 = INNER,
+			BorderSizePixel = 0,
+			Image = "",
+			ScaleType = Enum.ScaleType.Fit
+		}, card)
+
+		addCorner(avatar, 7)
+		addStroke(avatar, GOLD, 1, 0.35)
+
+		-- Fetch the actual Roblox headshot thumbnail.
+		task.spawn(function()
+			local ok, image = pcall(function()
+				return Players:GetUserThumbnailAsync(
+					player.UserId,
+					Enum.ThumbnailType.HeadShot,
+					Enum.ThumbnailSize.Size100x100
+				)
+			end)
+
+			if ok and avatar.Parent then
+				avatar.Image = image
+			end
+		end)
+
+		create("TextLabel", {
+			Position = UDim2.fromOffset(56, 7),
+			Size = UDim2.new(1, -64, 0, 22),
+			BackgroundTransparency = 1,
+			Text = player.DisplayName,
+			TextColor3 = isSelected and LIGHT_GOLD or WHITE,
+			TextSize = 13,
+			Font = Enum.Font.GothamBold,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd
+		}, card)
+
+		create("TextLabel", {
+			Position = UDim2.fromOffset(56, 29),
+			Size = UDim2.new(1, -64, 0, 16),
+			BackgroundTransparency = 1,
+			Text = "@" .. player.Name,
+			TextColor3 = MUTED,
+			TextSize = 10,
+			Font = Enum.Font.GothamMedium,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd
+		}, card)
+
+		card.Activated:Connect(function()
 			selectedPlayer = player
 			targetLabel.Text = "TARGET: " .. player.DisplayName
 			refreshPlayers()
@@ -387,35 +624,32 @@ local function refreshPlayers()
 end
 
 Players.PlayerAdded:Connect(refreshPlayers)
-Players.PlayerRemoving:Connect(function(player)
-	if player == selectedPlayer then
-		selectedPlayer = nil
-	end
-	refreshPlayers()
-end)
 
-refreshPlayers()
-
---==================================================
--- MOVEMENT
---==================================================
+--========================================================
+-- MOVEMENT CONTROLLER
+-- LinearVelocity avoids repeatedly tweening the character CFrame.
+-- This is a client-side prototype, not server-authoritative movement.
+--========================================================
 
 local function removeVelocity()
 	if velocityConstraint then
 		velocityConstraint:Destroy()
 		velocityConstraint = nil
 	end
+
 	if rootAttachment then
 		rootAttachment:Destroy()
 		rootAttachment = nil
 	end
+
 	activeRoot = nil
 end
 
 local function stopMovement(message)
 	movementActive = false
 	removeVelocity()
-	moveButton.Text = "START MOVE"
+
+	movementButton.Text = "START MOVE"
 	statusLabel.Text = message or "MOVEMENT STOPPED"
 end
 
@@ -423,11 +657,11 @@ local function setupVelocity(root)
 	removeVelocity()
 	activeRoot = root
 
-	rootAttachment = make("Attachment", {
+	rootAttachment = create("Attachment", {
 		Name = "NeonTravelAttachment"
 	}, root)
 
-	velocityConstraint = make("LinearVelocity", {
+	velocityConstraint = create("LinearVelocity", {
 		Name = "NeonTravelVelocity",
 		Attachment0 = rootAttachment,
 		RelativeTo = Enum.ActuatorRelativeTo.World,
@@ -438,13 +672,13 @@ local function setupVelocity(root)
 end
 
 local function startMovement()
-	if not selectedPlayer or selectedPlayer == LocalPlayer then
+	if not selectedPlayer or selectedPlayer == localPlayer then
 		statusLabel.Text = "SELECT ANOTHER PLAYER"
 		return
 	end
 
-	local _, myRoot = getParts(LocalPlayer)
-	local _, targetRoot = getParts(selectedPlayer)
+	local _, myRoot = getCharacterParts(localPlayer)
+	local _, targetRoot = getCharacterParts(selectedPlayer)
 
 	if not myRoot or not targetRoot then
 		statusLabel.Text = "CHARACTER NOT READY"
@@ -452,11 +686,12 @@ local function startMovement()
 	end
 
 	movementActive = true
-	moveButton.Text = "STOP MOVE"
+	movementButton.Text = "STOP MOVE"
 	setupVelocity(myRoot)
+	statusLabel.Text = "MOVING • " .. travelSpeed .. " SPS"
 end
 
-moveButton.Activated:Connect(function()
+movementButton.Activated:Connect(function()
 	if movementActive then
 		stopMovement()
 	else
@@ -467,8 +702,8 @@ end)
 RunService.Heartbeat:Connect(function()
 	if not movementActive then return end
 
-	local _, myRoot = getParts(LocalPlayer)
-	local _, targetRoot = getParts(selectedPlayer)
+	local _, myRoot = getCharacterParts(localPlayer)
+	local _, targetRoot = getCharacterParts(selectedPlayer)
 
 	if not myRoot or not targetRoot then
 		stopMovement("CHARACTER OR TARGET UNAVAILABLE")
@@ -488,25 +723,18 @@ RunService.Heartbeat:Connect(function()
 	if distance < 0.5 then
 		velocityConstraint.VectorVelocity = Vector3.zero
 	else
-		local speed = math.min(travelSpeed, distance * 4)
-		velocityConstraint.VectorVelocity = offset.Unit * speed
+		local desiredSpeed = math.min(travelSpeed, distance * 4)
+		velocityConstraint.VectorVelocity = offset.Unit * desiredSpeed
 	end
 
 	statusLabel.Text = "MOVING • " .. travelSpeed .. " SPS"
 end)
 
---==================================================
--- RESPONSIVE CAMERA TRACK
---
--- Important: this does NOT write Camera.CFrame every frame.
--- It uses a temporary camera subject offset, leaving Roblox's
--- normal camera controller and mouse input enabled.
---==================================================
-
-local originalCameraSubject
-local cameraOffset = Vector3.zero
-local cameraHumanoid
-local cameraOriginalOffset
+--========================================================
+-- CAMERA TRACK
+-- Preserves Roblox's normal camera input. This gently shifts
+-- the camera subject offset; it is not a hard camera lock.
+--========================================================
 
 local function stopCameraTracking()
 	cameraTracking = false
@@ -516,24 +744,25 @@ local function stopCameraTracking()
 		cameraConnection = nil
 	end
 
-	if cameraHumanoid and cameraHumanoid.Parent and cameraOriginalOffset then
-		cameraHumanoid.CameraOffset = cameraOriginalOffset
+	if cameraHumanoid and cameraHumanoid.Parent and originalCameraOffset then
+		cameraHumanoid.CameraOffset = originalCameraOffset
 	end
 
 	cameraHumanoid = nil
-	cameraOriginalOffset = nil
+	originalCameraOffset = nil
+	cameraOffset = Vector3.zero
 
-	cameraButton.Text = "CAMERA: OFF"
-	statusLabel.Text = "CAMERA TRACK OFF"
+	cameraButton.Text = "CAMERA TRACK: OFF"
 end
 
 local function startCameraTracking()
-	if not selectedPlayer or selectedPlayer == LocalPlayer then
+	if not selectedPlayer or selectedPlayer == localPlayer then
 		statusLabel.Text = "SELECT A TARGET FOR CAMERA"
 		return
 	end
 
-	local myHumanoid = getParts(LocalPlayer)
+	local myHumanoid = getCharacterParts(localPlayer)
+
 	if not myHumanoid then
 		statusLabel.Text = "YOUR CHARACTER IS NOT READY"
 		return
@@ -541,69 +770,91 @@ local function startCameraTracking()
 
 	cameraTracking = true
 	cameraHumanoid = myHumanoid
-	cameraOriginalOffset = myHumanoid.CameraOffset
-
-	cameraButton.Text = "CAMERA: ON"
+	originalCameraOffset = myHumanoid.CameraOffset
+	cameraButton.Text = "CAMERA TRACK: ON"
 
 	cameraConnection = RunService.RenderStepped:Connect(function(dt)
 		if not cameraTracking then return end
 
-		local targetHumanoid, targetRoot = getParts(selectedPlayer)
-		local _, currentRoot = getParts(LocalPlayer)
+		local _, targetRoot = getCharacterParts(selectedPlayer)
+		local _, myRoot = getCharacterParts(localPlayer)
 
-		if not targetRoot or not currentRoot or not cameraHumanoid then
+		if not targetRoot or not myRoot or not cameraHumanoid then
 			return
 		end
 
-		-- The standard camera keeps responding to mouse input.
-		-- CameraOffset is blended gently rather than hard-locking the view.
-		local localDirection = currentRoot.CFrame:VectorToObjectSpace(
-			targetRoot.Position - currentRoot.Position
+		local relative = myRoot.CFrame:VectorToObjectSpace(
+			targetRoot.Position - myRoot.Position
 		)
 
 		local desiredOffset = Vector3.new(
-			math.clamp(localDirection.X * 0.05, -2, 2),
-			math.clamp(localDirection.Y * 0.025, -1, 1),
+			math.clamp(relative.X * 0.04, -1.5, 1.5),
+			math.clamp(relative.Y * 0.02, -0.75, 0.75),
 			0
 		)
 
 		local alpha = 1 - math.exp(-CAMERA_SMOOTHNESS * dt)
 		cameraOffset = cameraOffset:Lerp(desiredOffset, alpha)
-
-		cameraHumanoid.CameraOffset = cameraOriginalOffset + cameraOffset
+		cameraHumanoid.CameraOffset = originalCameraOffset + cameraOffset
 	end)
 end
 
 cameraButton.Activated:Connect(function()
 	if cameraTracking then
 		stopCameraTracking()
+		statusLabel.Text = "CAMERA TRACK OFF"
 	else
 		startCameraTracking()
 	end
 end)
 
---==================================================
--- CLEANUP
---==================================================
+--========================================================
+-- RESPAWN / PLAYER LEAVE / CLEANUP
+--========================================================
 
-LocalPlayer.CharacterAdded:Connect(function()
+Players.PlayerRemoving:Connect(function(player)
+	if player == selectedPlayer then
+		selectedPlayer = nil
+		stopMovement("TARGET LEFT")
+		stopCameraTracking()
+		refreshPlayers()
+	end
+end)
+
+localPlayer.CharacterAdded:Connect(function()
 	if movementActive then
 		stopMovement("CHARACTER RESPAWNED")
 	end
+
 	if cameraTracking then
 		stopCameraTracking()
 	end
 end)
 
 closeButton.Activated:Connect(function()
-	stopMovement("SYSTEM CLOSED")
-	stopCameraTracking()
-	gui:Destroy()
+	main.Visible = false
+	reopenButton.Visible = true
+	panelOpen = false
+end)
+
+reopenButton.Activated:Connect(function()
+	if reopenMoved then
+		reopenMoved = false
+		return
+	end
+
+	main.Visible = true
+	reopenButton.Visible = false
+	panelOpen = true
 end)
 
 script.Destroying:Connect(function()
+	destroyed = true
 	stopMovement()
 	stopCameraTracking()
 end)
 
+-- INITIALIZE
+refreshPlayers()
+speedBox.Text = tostring(DEFAULT_SPEED)
 statusLabel.Text = "SYSTEM READY • 200 SPS"
