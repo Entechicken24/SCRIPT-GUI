@@ -1,232 +1,306 @@
 
 -- NEON CYBER CONTROL CENTER
--- Complete LocalScript for your own Roblox Studio experience.
+-- FULL FRESH SCRIPT
+-- For your own Roblox Studio experience.
 -- Place in StarterPlayer > StarterPlayerScripts.
+-- Disable/delete your old copy first.
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
---==================================================
--- SETTINGS
---==================================================
+--====================================================
+-- CONFIG
+--====================================================
 
-local GOLD = Color3.fromRGB(235, 183, 76)
+local GOLD = Color3.fromRGB(235, 185, 78)
 local DARK = Color3.fromRGB(15, 15, 18)
-local PANEL = Color3.fromRGB(25, 25, 30)
-local TEXT = Color3.fromRGB(245, 240, 225)
+local PANEL = Color3.fromRGB(29, 29, 34)
+local WHITE = Color3.fromRGB(245, 241, 231)
 local MUTED = Color3.fromRGB(165, 160, 150)
 
-local MOVE_SPEED = 200
-local SPEED_STEP = 25
-local CAMERA_DISTANCE = 12
-local CAMERA_HEIGHT = 4
+local speed = 200
+local speedStep = 25
 
 local selectedPlayer = nil
 local cameraLocked = false
 local moving = false
+
+local cameraYaw = 0
+local cameraPitch = math.rad(-8)
+local cameraDistance = 12
+local cameraHeight = 4
+
+local previousCameraType
+local previousCameraSubject
+
 local activeTouch = nil
 local rightMouseHeld = false
 
-local yaw = 0
-local pitch = math.rad(-10)
+local moveAttachment
+local moveVelocity
+local moveRoot
 
-local savedCameraType = nil
-local savedCameraSubject = nil
-local savedMouseBehavior = nil
+local cards = {}
+local guiConnections = {}
 
-local movementAttachment = nil
-local movementVelocity = nil
-local movementRoot = nil
-
-local playerCards = {}
-
--- Remove an earlier copy of this GUI.
-local oldGui = PlayerGui:FindFirstChild("NeonCyberControlCenter")
+-- Remove old GUI from previous script versions.
+local oldGui = playerGui:FindFirstChild("NeonCyberControlCenter")
 if oldGui then
-	oldGui:Destroy()
+    oldGui:Destroy()
 end
 
---==================================================
--- GUI HELPERS
---==================================================
+--====================================================
+-- GUI SETUP
+--====================================================
 
-local function addCorner(object, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius or 10)
-	corner.Parent = object
-	return corner
+local screen = Instance.new("ScreenGui")
+screen.Name = "NeonCyberControlCenter"
+screen.ResetOnSpawn = false
+screen.IgnoreGuiInset = true
+screen.DisplayOrder = 1000
+screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screen.Parent = playerGui
+
+local function corner(object, radius)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, radius or 10)
+    c.Parent = object
+    return c
 end
 
-local function addStroke(object, color, thickness)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color or GOLD
-	stroke.Thickness = thickness or 1
-	stroke.Parent = object
-	return stroke
+local function stroke(object, color, thickness)
+    local s = Instance.new("UIStroke")
+    s.Color = color or GOLD
+    s.Thickness = thickness or 1
+    s.Parent = object
+    return s
 end
 
-local function makeLabel(parent, text, size, position, textSize)
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Text = text
-	label.Size = size
-	label.Position = position
-	label.Font = Enum.Font.GothamMedium
-	label.TextSize = textSize or 14
-	label.TextColor3 = TEXT
-	label.TextWrapped = true
-	label.Parent = parent
-	return label
+local function label(parent, text, size, position, textSize)
+    local l = Instance.new("TextLabel")
+    l.BackgroundTransparency = 1
+    l.Size = size
+    l.Position = position
+    l.Text = text
+    l.TextColor3 = WHITE
+    l.Font = Enum.Font.GothamMedium
+    l.TextSize = textSize or 13
+    l.TextWrapped = true
+    l.Parent = parent
+    return l
 end
 
-local function makeButton(parent, text, size, position)
-	local button = Instance.new("TextButton")
-	button.Size = size
-	button.Position = position
-	button.BackgroundColor3 = PANEL
-	button.Text = text
-	button.TextColor3 = GOLD
-	button.TextSize = 13
-	button.Font = Enum.Font.GothamBold
-	button.AutoButtonColor = true
-	button.Parent = parent
-	addCorner(button, 9)
-	addStroke(button, GOLD, 1)
-	return button
+local function button(parent, text, size, position)
+    local b = Instance.new("TextButton")
+    b.Size = size
+    b.Position = position
+    b.BackgroundColor3 = PANEL
+    b.Text = text
+    b.TextColor3 = GOLD
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 13
+    b.AutoButtonColor = true
+    b.ZIndex = 20
+    b.Parent = parent
+    corner(b, 9)
+    stroke(b, GOLD, 1)
+    return b
 end
 
-local function getCharacterParts(player)
-	if not player then
-		return nil, nil, nil
-	end
+local function section(parent, text, height)
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1, -4, 0, height)
+    f.BackgroundColor3 = PANEL
+    f.BorderSizePixel = 0
+    f.Parent = parent
+    corner(f, 10)
+    stroke(f, Color3.fromRGB(93, 74, 42), 1)
 
-	local character = player.Character
-	if not character then
-		return nil, nil, nil
-	end
+    local t = label(
+        f,
+        text,
+        UDim2.new(1, -16, 0, 25),
+        UDim2.fromOffset(8, 4),
+        13
+    )
+    t.TextColor3 = GOLD
+    t.TextXAlignment = Enum.TextXAlignment.Left
 
-	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	local root = character:FindFirstChild("HumanoidRootPart")
-	local head = character:FindFirstChild("Head")
-
-	return character, humanoid, root or head
+    return f
 end
 
-local function getAimPart(player)
-	if not player or not player.Character then
-		return nil
-	end
-
-	return player.Character:FindFirstChild("Head")
-		or player.Character:FindFirstChild("HumanoidRootPart")
-end
-
---==================================================
--- MAIN GUI
---==================================================
-
-local gui = Instance.new("ScreenGui")
-gui.Name = "NeonCyberControlCenter"
-gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = false
-gui.DisplayOrder = 50
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.Parent = PlayerGui
-
+-- Main panel
 local main = Instance.new("Frame")
 main.Name = "MainPanel"
 main.AnchorPoint = Vector2.new(0.5, 0.5)
-main.Position = UDim2.fromScale(0.5, 0.46)
-main.Size = UDim2.new(0.9, 0, 0.78, 0)
+main.Position = UDim2.fromScale(0.5, 0.43)
+main.Size = UDim2.new(0.9, 0, 0.7, 0)
 main.BackgroundColor3 = DARK
 main.BorderSizePixel = 0
-main.Parent = gui
-addCorner(main, 14)
-addStroke(main, GOLD, 1.5)
+main.ZIndex = 2
+main.Parent = screen
+corner(main, 14)
+stroke(main, GOLD, 1.5)
 
-local sizeConstraint = Instance.new("UISizeConstraint")
-sizeConstraint.MinSize = Vector2.new(275, 300)
-sizeConstraint.MaxSize = Vector2.new(360, 600)
-sizeConstraint.Parent = main
+local constraint = Instance.new("UISizeConstraint")
+constraint.MinSize = Vector2.new(270, 300)
+constraint.MaxSize = Vector2.new(360, 570)
+constraint.Parent = main
 
 local header = Instance.new("Frame")
-header.Size = UDim2.new(1, 0, 0, 55)
-header.BackgroundColor3 = Color3.fromRGB(35, 30, 21)
+header.Size = UDim2.new(1, 0, 0, 52)
+header.BackgroundColor3 = Color3.fromRGB(39, 33, 23)
 header.BorderSizePixel = 0
+header.ZIndex = 3
 header.Parent = main
-addCorner(header, 14)
+corner(header, 13)
 
-local title = makeLabel(
-	header,
-	"NEON CYBER CONTROL CENTER",
-	UDim2.new(1, -65, 1, 0),
-	UDim2.fromOffset(12, 0),
-	14
+local title = label(
+    header,
+    "NEON CYBER CONTROL CENTER",
+    UDim2.new(1, -58, 1, 0),
+    UDim2.fromOffset(10, 0),
+    13
 )
 title.TextColor3 = GOLD
 title.TextXAlignment = Enum.TextXAlignment.Left
+title.ZIndex = 4
 
-local closeButton = makeButton(
-	header,
-	"X",
-	UDim2.fromOffset(38, 36),
-	UDim2.new(1, -46, 0, 9)
+local closeButton = button(
+    header,
+    "X",
+    UDim2.fromOffset(36, 34),
+    UDim2.new(1, -43, 0, 9)
 )
-closeButton.TextSize = 16
+closeButton.ZIndex = 10
 
 local content = Instance.new("ScrollingFrame")
-content.Name = "Content"
-content.Position = UDim2.fromOffset(10, 63)
-content.Size = UDim2.new(1, -20, 1, -73)
+content.Name = "PanelContent"
+content.Position = UDim2.fromOffset(9, 60)
+content.Size = UDim2.new(1, -18, 1, -68)
 content.BackgroundTransparency = 1
 content.BorderSizePixel = 0
 content.ScrollBarThickness = 4
 content.ScrollBarImageColor3 = GOLD
 content.AutomaticCanvasSize = Enum.AutomaticSize.Y
 content.CanvasSize = UDim2.new()
+content.ZIndex = 3
 content.Parent = main
 
-local layout = Instance.new("UIListLayout")
-layout.Padding = UDim.new(0, 9)
-layout.SortOrder = Enum.SortOrder.LayoutOrder
-layout.Parent = content
+local contentLayout = Instance.new("UIListLayout")
+contentLayout.Padding = UDim.new(0, 8)
+contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+contentLayout.Parent = content
 
-local function makeSection(text, height)
-	local section = Instance.new("Frame")
-	section.Size = UDim2.new(1, -4, 0, height)
-	section.BackgroundColor3 = PANEL
-	section.BorderSizePixel = 0
-	section.Parent = content
-	addCorner(section, 10)
-	addStroke(section, Color3.fromRGB(90, 72, 40), 1)
+--====================================================
+-- FLOATING CONTROLS
+-- These are direct children of ScreenGui, NOT MainPanel.
+-- They remain visible when X hides MainPanel.
+--====================================================
 
-	local sectionTitle = makeLabel(
-		section,
-		text,
-		UDim2.new(1, -16, 0, 25),
-		UDim2.fromOffset(8, 4),
-		13
-	)
-	sectionTitle.TextColor3 = GOLD
-	sectionTitle.TextXAlignment = Enum.TextXAlignment.Left
+local floating = Instance.new("Frame")
+floating.Name = "FloatingControls"
+floating.AnchorPoint = Vector2.new(0.5, 1)
+floating.Position = UDim2.new(0.5, 0, 1, -18)
+floating.Size = UDim2.new(0.94, 0, 0, 50)
+floating.BackgroundTransparency = 1
+floating.Visible = true
+floating.ZIndex = 100
+floating.Parent = screen
 
-	return section
+local floatingConstraint = Instance.new("UISizeConstraint")
+floatingConstraint.MaxSize = Vector2.new(360, 50)
+floatingConstraint.MinSize = Vector2.new(250, 50)
+floatingConstraint.Parent = floating
+
+local floatingLayout = Instance.new("UIListLayout")
+floatingLayout.FillDirection = Enum.FillDirection.Horizontal
+floatingLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+floatingLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+floatingLayout.Padding = UDim.new(0, 8)
+floatingLayout.SortOrder = Enum.SortOrder.LayoutOrder
+floatingLayout.Parent = floating
+
+local camButton = button(
+    floating,
+    "CAM LOCK: OFF",
+    UDim2.new(0.5, -4, 1, 0),
+    UDim2.new()
+)
+camButton.Name = "FloatingCameraLock"
+camButton.LayoutOrder = 1
+camButton.ZIndex = 101
+camButton.TextSize = 12
+
+local moveButton = button(
+    floating,
+    "START MOVE",
+    UDim2.new(0.5, -4, 1, 0),
+    UDim2.new()
+)
+moveButton.Name = "FloatingMove"
+moveButton.LayoutOrder = 2
+moveButton.ZIndex = 101
+moveButton.TextSize = 12
+
+-- Reopen button, shown when the panel is hidden.
+local reopenButton = button(
+    screen,
+    "N",
+    UDim2.fromOffset(46, 46),
+    UDim2.new(0, 12, 0.48, 0)
+)
+reopenButton.Name = "ReopenPanel"
+reopenButton.Visible = false
+reopenButton.ZIndex = 120
+reopenButton.TextSize = 19
+
+closeButton.Activated:Connect(function()
+    main.Visible = false
+    reopenButton.Visible = true
+    floating.Visible = true
+end)
+
+reopenButton.Activated:Connect(function()
+    main.Visible = true
+    reopenButton.Visible = false
+    floating.Visible = true
+end)
+
+--====================================================
+-- STATUS
+--====================================================
+
+local statusSection = section(content, "SYSTEM STATUS", 62)
+
+local statusLabel = label(
+    statusSection,
+    "Ready • Select a player",
+    UDim2.new(1, -16, 0, 27),
+    UDim2.fromOffset(8, 31),
+    12
+)
+statusLabel.TextColor3 = MUTED
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local function setStatus(text)
+    statusLabel.Text = text
 end
 
---==================================================
--- PLAYER SELECTION + AVATARS
---==================================================
+--====================================================
+-- PLAYER LIST AND AVATARS
+--====================================================
 
-local playerSection = makeSection("SELECT TARGET PLAYER", 190)
+local playerSection = section(content, "SELECT TARGET PLAYER", 185)
 
 local playerScroll = Instance.new("ScrollingFrame")
-playerScroll.Position = UDim2.fromOffset(8, 32)
-playerScroll.Size = UDim2.new(1, -16, 1, -40)
+playerScroll.Position = UDim2.fromOffset(7, 31)
+playerScroll.Size = UDim2.new(1, -14, 1, -37)
 playerScroll.BackgroundTransparency = 1
 playerScroll.BorderSizePixel = 0
 playerScroll.ScrollBarThickness = 3
@@ -236,536 +310,481 @@ playerScroll.CanvasSize = UDim2.new()
 playerScroll.Parent = playerSection
 
 local playerLayout = Instance.new("UIListLayout")
-playerLayout.Padding = UDim.new(0, 6)
+playerLayout.Padding = UDim.new(0, 5)
 playerLayout.SortOrder = Enum.SortOrder.LayoutOrder
 playerLayout.Parent = playerScroll
 
-local function updateCardHighlights()
-	for player, card in pairs(playerCards) do
-		if card and card.Parent then
-			card.BackgroundColor3 = player == selectedPlayer
-				and Color3.fromRGB(65, 49, 24)
-				or Color3.fromRGB(31, 31, 36)
-		end
-	end
+local function refreshHighlights()
+    for p, card in pairs(cards) do
+        if card and card.Parent then
+            card.BackgroundColor3 =
+                (p == selectedPlayer)
+                and Color3.fromRGB(73, 55, 26)
+                or Color3.fromRGB(34, 34, 39)
+        end
+    end
 end
 
-local function selectTarget(player)
-	selectedPlayer = player
-	updateCardHighlights()
+local function selectPlayer(p)
+    selectedPlayer = p
+    refreshHighlights()
+    setStatus("Selected: " .. p.DisplayName)
 end
 
-local function makePlayerCard(player)
-	if player == LocalPlayer or playerCards[player] then
-		return
-	end
+local function addPlayer(p)
+    if p == player or cards[p] then
+        return
+    end
 
-	local card = Instance.new("TextButton")
-	card.Name = "Player_" .. player.UserId
-	card.Size = UDim2.new(1, -4, 0, 48)
-	card.BackgroundColor3 = Color3.fromRGB(31, 31, 36)
-	card.Text = ""
-	card.AutoButtonColor = true
-	card.Parent = playerScroll
-	addCorner(card, 8)
-	addStroke(card, Color3.fromRGB(105, 83, 43), 1)
+    local card = Instance.new("TextButton")
+    card.Name = "Target_" .. p.UserId
+    card.Size = UDim2.new(1, -3, 0, 46)
+    card.BackgroundColor3 = Color3.fromRGB(34, 34, 39)
+    card.Text = ""
+    card.AutoButtonColor = true
+    card.Parent = playerScroll
+    corner(card, 8)
+    stroke(card, Color3.fromRGB(100, 79, 43), 1)
 
-	local avatar = Instance.new("ImageLabel")
-	avatar.Size = UDim2.fromOffset(36, 36)
-	avatar.Position = UDim2.fromOffset(6, 6)
-	avatar.BackgroundColor3 = DARK
-	avatar.BorderSizePixel = 0
-	avatar.Image = ""
-	avatar.Parent = card
-	addCorner(avatar, 8)
+    local avatar = Instance.new("ImageLabel")
+    avatar.Size = UDim2.fromOffset(34, 34)
+    avatar.Position = UDim2.fromOffset(6, 6)
+    avatar.BackgroundColor3 = DARK
+    avatar.BorderSizePixel = 0
+    avatar.Parent = card
+    corner(avatar, 7)
 
-	task.spawn(function()
-		local ok, image = pcall(function()
-			return Players:GetUserThumbnailAsync(
-				player.UserId,
-				Enum.ThumbnailType.HeadShot,
-				Enum.ThumbnailSize.Size100x100
-			)
-		end)
+    local name = label(
+        card,
+        p.DisplayName .. "\n@" .. p.Name,
+        UDim2.new(1, -50, 1, 0),
+        UDim2.fromOffset(46, 0),
+        12
+    )
+    name.TextXAlignment = Enum.TextXAlignment.Left
 
-		if ok and avatar.Parent then
-			avatar.Image = image
-		end
-	end)
+    cards[p] = card
 
-	local nameLabel = makeLabel(
-		card,
-		player.DisplayName .. "\n@" .. player.Name,
-		UDim2.new(1, -54, 1, 0),
-		UDim2.fromOffset(49, 0),
-		12
-	)
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    task.spawn(function()
+        local ok, image = pcall(function()
+            return Players:GetUserThumbnailAsync(
+                p.UserId,
+                Enum.ThumbnailType.HeadShot,
+                Enum.ThumbnailSize.Size100x100
+            )
+        end)
 
-	card.Activated:Connect(function()
-		selectTarget(player)
-	end)
+        if ok and avatar.Parent then
+            avatar.Image = image
+        end
+    end)
 
-	playerCards[player] = card
-	updateCardHighlights()
+    card.Activated:Connect(function()
+        selectPlayer(p)
+    end)
+
+    refreshHighlights()
 end
 
-local function removePlayerCard(player)
-	local card = playerCards[player]
-	if card then
-		card:Destroy()
-	end
-	playerCards[player] = nil
+local function removePlayer(p)
+    if cards[p] then
+        cards[p]:Destroy()
+        cards[p] = nil
+    end
 
-	if selectedPlayer == player then
-		selectedPlayer = nil
-		updateCardHighlights()
-	end
+    if selectedPlayer == p then
+        selectedPlayer = nil
+        refreshHighlights()
+        setStatus("Target left the server")
+    end
 end
 
-for _, player in ipairs(Players:GetPlayers()) do
-	makePlayerCard(player)
+for _, p in ipairs(Players:GetPlayers()) do
+    addPlayer(p)
 end
 
-Players.PlayerAdded:Connect(makePlayerCard)
-Players.PlayerRemoving:Connect(removePlayerCard)
+Players.PlayerAdded:Connect(addPlayer)
+Players.PlayerRemoving:Connect(removePlayer)
 
---==================================================
+--====================================================
 -- SPEED CONTROLS
---==================================================
+--====================================================
 
-local speedSection = makeSection("MOVEMENT SPEED", 105)
+local speedSection = section(content, "MOVEMENT SPEED", 105)
 
-local speedValue = makeLabel(
-	speedSection,
-	"200 studs/s",
-	UDim2.new(1, -16, 0, 28),
-	UDim2.fromOffset(8, 30),
-	16
+local speedLabel = label(
+    speedSection,
+    "200 studs/s",
+    UDim2.new(1, -16, 0, 27),
+    UDim2.fromOffset(8, 29),
+    16
 )
-speedValue.TextColor3 = GOLD
+speedLabel.TextColor3 = GOLD
 
-local minusButton = makeButton(
-	speedSection,
-	"-25",
-	UDim2.new(0.27, 0, 0, 30),
-	UDim2.new(0.04, 0, 0, 65)
-)
-
-local resetSpeedButton = makeButton(
-	speedSection,
-	"RESET",
-	UDim2.new(0.30, 0, 0, 30),
-	UDim2.new(0.35, 0, 0, 65)
+local minusButton = button(
+    speedSection,
+    "-25",
+    UDim2.new(0.27, 0, 0, 30),
+    UDim2.new(0.04, 0, 0, 66)
 )
 
-local plusButton = makeButton(
-	speedSection,
-	"+25",
-	UDim2.new(0.27, 0, 0, 30),
-	UDim2.new(0.69, 0, 0, 65)
+local resetButton = button(
+    speedSection,
+    "RESET",
+    UDim2.new(0.30, 0, 0, 30),
+    UDim2.new(0.35, 0, 0, 66)
 )
 
-local function updateSpeedLabel()
-	speedValue.Text = tostring(MOVE_SPEED) .. " studs/s"
+local plusButton = button(
+    speedSection,
+    "+25",
+    UDim2.new(0.27, 0, 0, 30),
+    UDim2.new(0.69, 0, 0, 66)
+)
+
+local function updateSpeed()
+    speedLabel.Text = tostring(speed) .. " studs/s"
 end
 
 minusButton.Activated:Connect(function()
-	MOVE_SPEED = math.max(25, MOVE_SPEED - SPEED_STEP)
-	updateSpeedLabel()
+    speed = math.max(25, speed - speedStep)
+    updateSpeed()
 end)
 
 plusButton.Activated:Connect(function()
-	MOVE_SPEED = math.min(1000, MOVE_SPEED + SPEED_STEP)
-	updateSpeedLabel()
+    speed = math.min(1000, speed + speedStep)
+    updateSpeed()
 end)
 
-resetSpeedButton.Activated:Connect(function()
-	MOVE_SPEED = 200
-	updateSpeedLabel()
+resetButton.Activated:Connect(function()
+    speed = 200
+    updateSpeed()
 end)
 
---==================================================
--- STATUS
---==================================================
-
-local statusSection = makeSection("SYSTEM STATUS", 65)
-
-local statusLabel = makeLabel(
-	statusSection,
-	"Ready • Select a player",
-	UDim2.new(1, -16, 0, 28),
-	UDim2.fromOffset(8, 31),
-	12
-)
-statusLabel.TextColor3 = MUTED
-statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-
-local function setStatus(text)
-	statusLabel.Text = text
-end
-
---==================================================
--- FLOATING BUTTONS — ALWAYS OUTSIDE THE MAIN PANEL
---==================================================
-
-local floatBar = Instance.new("Frame")
-floatBar.Name = "FloatingControls"
-floatBar.AnchorPoint = Vector2.new(0.5, 1)
-floatBar.Position = UDim2.new(0.5, 0, 1, -12)
-floatBar.Size = UDim2.new(1, -20, 0, 48)
-floatBar.BackgroundTransparency = 1
-floatBar.Parent = gui
-
-local floatLayout = Instance.new("UIListLayout")
-floatLayout.FillDirection = Enum.FillDirection.Horizontal
-floatLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-floatLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-floatLayout.Padding = UDim.new(0, 8)
-floatLayout.SortOrder = Enum.SortOrder.LayoutOrder
-floatLayout.Parent = floatBar
-
-local camButton = makeButton(
-	floatBar,
-	"CAM LOCK: OFF",
-	UDim2.new(0.5, -4, 1, 0),
-	UDim2.new()
-)
-camButton.LayoutOrder = 1
-camButton.TextSize = 12
-
-local moveButton = makeButton(
-	floatBar,
-	"START MOVE",
-	UDim2.new(0.5, -4, 1, 0),
-	UDim2.new()
-)
-moveButton.LayoutOrder = 2
-moveButton.TextSize = 12
-
-local reopenButton = makeButton(
-	gui,
-	"N",
-	UDim2.fromOffset(44, 44),
-	UDim2.new(0, 12, 0.55, 0)
-)
-reopenButton.Name = "ReopenButton"
-reopenButton.Visible = false
-reopenButton.TextSize = 20
-reopenButton.ZIndex = 20
-
-closeButton.Activated:Connect(function()
-	main.Visible = false
-	reopenButton.Visible = true
-	-- Floating controls intentionally remain visible.
-end)
-
-reopenButton.Activated:Connect(function()
-	main.Visible = true
-	reopenButton.Visible = false
-end)
-
---==================================================
--- MOVEMENT START / STOP
---==================================================
+--====================================================
+-- MOVEMENT
+--====================================================
 
 local function stopMovement()
-	moving = false
+    moving = false
 
-	if movementVelocity then
-		movementVelocity:Destroy()
-		movementVelocity = nil
-	end
+    if moveVelocity then
+        moveVelocity:Destroy()
+        moveVelocity = nil
+    end
 
-	if movementAttachment then
-		movementAttachment:Destroy()
-		movementAttachment = nil
-	end
+    if moveAttachment then
+        moveAttachment:Destroy()
+        moveAttachment = nil
+    end
 
-	movementRoot = nil
-	moveButton.Text = "START MOVE"
-	setStatus("Movement stopped")
+    moveRoot = nil
+    moveButton.Text = "START MOVE"
+    setStatus("Movement stopped")
 end
 
 local function startMovement()
-	if not selectedPlayer then
-		setStatus("Select a target first")
-		return
-	end
+    if not selectedPlayer then
+        setStatus("Select a player first")
+        return
+    end
 
-	local _, _, targetRoot = getCharacterParts(selectedPlayer)
-	local character = LocalPlayer.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	local root = character and character:FindFirstChild("HumanoidRootPart")
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local targetCharacter = selectedPlayer.Character
+    local targetRoot = targetCharacter
+        and targetCharacter:FindFirstChild("HumanoidRootPart")
 
-	if not targetRoot or not root or not humanoid or humanoid.Health <= 0 then
-		setStatus("Target or character unavailable")
-		return
-	end
+    if not humanoid or humanoid.Health <= 0 or not root or not targetRoot then
+        setStatus("Character or target unavailable")
+        return
+    end
 
-	stopMovement()
+    stopMovement()
 
-	movementRoot = root
-	movementAttachment = Instance.new("Attachment")
-	movementAttachment.Name = "NeonMoveAttachment"
-	movementAttachment.Parent = root
+    moveRoot = root
 
-	movementVelocity = Instance.new("LinearVelocity")
-	movementVelocity.Name = "NeonMoveVelocity"
-	movementVelocity.Attachment0 = movementAttachment
-	movementVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
-	movementVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
-	movementVelocity.VectorVelocity = Vector3.zero
-	movementVelocity.ForceLimitsEnabled = false
-	movementVelocity.Parent = root
+    moveAttachment = Instance.new("Attachment")
+    moveAttachment.Name = "NeonMovementAttachment"
+    moveAttachment.Parent = root
 
-	moving = true
-	moveButton.Text = "STOP MOVE"
-	setStatus("Moving toward " .. selectedPlayer.DisplayName)
+    moveVelocity = Instance.new("LinearVelocity")
+    moveVelocity.Name = "NeonMovementVelocity"
+    moveVelocity.Attachment0 = moveAttachment
+    moveVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+    moveVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+    moveVelocity.VectorVelocity = Vector3.zero
+    moveVelocity.ForceLimitsEnabled = false
+    moveVelocity.Parent = root
+
+    moving = true
+    moveButton.Text = "STOP MOVE"
+    setStatus("Moving toward " .. selectedPlayer.DisplayName)
 end
 
 moveButton.Activated:Connect(function()
-	if moving then
-		stopMovement()
-	else
-		startMovement()
-	end
+    if moving then
+        stopMovement()
+    else
+        startMovement()
+    end
 end)
 
---==================================================
--- REAL CAMERA LOCK
--- Aims the camera at the selected player's head.
--- Right-side touch drag rotates the camera on mobile.
--- Right mouse drag rotates the camera on desktop.
---==================================================
+--====================================================
+-- CAMERA LOCK
+--====================================================
 
-local function isTouchOverGui(position)
-	local ok, objects = pcall(function()
-		return GuiService:GetGuiObjectsAtPosition(position.X, position.Y)
-	end)
+local function getAimPart(p)
+    local character = p and p.Character
+    if not character then
+        return nil
+    end
 
-	if not ok then
-		return false
-	end
-
-	for _, object in ipairs(objects) do
-		if object:IsDescendantOf(gui) then
-			return true
-		end
-	end
-
-	return false
+    return character:FindFirstChild("Head")
+        or character:FindFirstChild("HumanoidRootPart")
 end
 
 local function unlockCamera()
-	cameraLocked = false
-	camButton.Text = "CAM LOCK: OFF"
+    if not cameraLocked then
+        return
+    end
 
-	local camera = workspace.CurrentCamera
-	if camera then
-		camera.CameraType = savedCameraType or Enum.CameraType.Custom
-		camera.CameraSubject = savedCameraSubject
-	end
+    cameraLocked = false
+    activeTouch = nil
+    camButton.Text = "CAM LOCK: OFF"
 
-	if savedMouseBehavior then
-		UserInputService.MouseBehavior = savedMouseBehavior
-	end
+    local camera = workspace.CurrentCamera
+    if camera then
+        camera.CameraType = previousCameraType or Enum.CameraType.Custom
+        camera.CameraSubject = previousCameraSubject
 
-	setStatus("Camera lock off")
+        if not previousCameraSubject then
+            local character = player.Character
+            local humanoid = character
+                and character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                camera.CameraSubject = humanoid
+            end
+        end
+    end
+
+    setStatus("Camera lock off")
 end
 
 local function lockCamera()
-	if not selectedPlayer then
-		setStatus("Select a target first")
-		return
-	end
+    if not selectedPlayer then
+        setStatus("Select a player first")
+        return
+    end
 
-	local aimPart = getAimPart(selectedPlayer)
-	local character = LocalPlayer.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local targetPart = getAimPart(selectedPlayer)
 
-	if not aimPart or not root then
-		setStatus("Target or character unavailable")
-		return
-	end
+    if not root or not targetPart then
+        setStatus("Target or character unavailable")
+        return
+    end
 
-	local camera = workspace.CurrentCamera
-	if not camera then
-		return
-	end
+    local camera = workspace.CurrentCamera
+    if not camera then
+        setStatus("Camera unavailable")
+        return
+    end
 
-	savedCameraType = camera.CameraType
-	savedCameraSubject = camera.CameraSubject
-	savedMouseBehavior = UserInputService.MouseBehavior
+    previousCameraType = camera.CameraType
+    previousCameraSubject = camera.CameraSubject
 
-	local lookVector = camera.CFrame.LookVector
-	yaw = math.atan2(-lookVector.X, -lookVector.Z)
-	pitch = math.clamp(math.asin(lookVector.Y), math.rad(-45), math.rad(25))
+    local look = camera.CFrame.LookVector
+    cameraYaw = math.atan2(-look.X, -look.Z)
+    cameraPitch = math.clamp(
+        math.asin(look.Y),
+        math.rad(-35),
+        math.rad(35)
+    )
 
-	camera.CameraType = Enum.CameraType.Scriptable
-	cameraLocked = true
-	camButton.Text = "CAM LOCK: ON"
-	setStatus("Camera locked onto " .. selectedPlayer.DisplayName)
+    camera.CameraType = Enum.CameraType.Scriptable
+    cameraLocked = true
+    camButton.Text = "CAM LOCK: ON"
+    setStatus("Locked onto " .. selectedPlayer.DisplayName)
 end
 
 camButton.Activated:Connect(function()
-	if cameraLocked then
-		unlockCamera()
-	else
-		lockCamera()
-	end
+    if cameraLocked then
+        unlockCamera()
+    else
+        lockCamera()
+    end
 end)
 
+local function touchIsOnOurGui(position)
+    local ok, objects = pcall(function()
+        return playerGui:GetGuiObjectsAtPosition(position.X, position.Y)
+    end)
+
+    if not ok then
+        return false
+    end
+
+    for _, object in ipairs(objects) do
+        if object:IsDescendantOf(screen) then
+            return true
+        end
+    end
+
+    return false
+end
+
 UserInputService.InputBegan:Connect(function(input, processed)
-	if processed then
-		return
-	end
+    if input.UserInputType == Enum.UserInputType.Touch then
+        local camera = workspace.CurrentCamera
+        if not camera or not cameraLocked then
+            return
+        end
 
-	if input.UserInputType == Enum.UserInputType.Touch then
-		local position = input.Position
-		local camera = workspace.CurrentCamera
-		if not camera then
-			return
-		end
+        if input.Position.X >= camera.ViewportSize.X * 0.48
+            and not touchIsOnOurGui(input.Position) then
+            activeTouch = input
+        end
 
-		-- Reserve the left side for the movement joystick.
-		-- Ignore touches that begin on this GUI.
-		if cameraLocked
-			and position.X >= camera.ViewportSize.X * 0.48
-			and not isTouchOverGui(position) then
-			activeTouch = input
-		end
-
-	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-		rightMouseHeld = true
-	end
+    elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+        rightMouseHeld = true
+    end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-	if not cameraLocked then
-		return
-	end
+    if not cameraLocked then
+        return
+    end
 
-	if input.UserInputType == Enum.UserInputType.Touch
-		and activeTouch
-		and input == activeTouch then
+    if input.UserInputType == Enum.UserInputType.Touch
+        and activeTouch
+        and input == activeTouch then
 
-		yaw = yaw - input.Delta.X * 0.008
-		pitch = math.clamp(
-			pitch - input.Delta.Y * 0.006,
-			math.rad(-35),
-			math.rad(35)
-		)
+        cameraYaw = cameraYaw - input.Delta.X * 0.008
+        cameraPitch = math.clamp(
+            cameraPitch - input.Delta.Y * 0.006,
+            math.rad(-35),
+            math.rad(35)
+        )
 
-	elseif input.UserInputType == Enum.UserInputType.MouseMovement
-		and rightMouseHeld then
+    elseif input.UserInputType == Enum.UserInputType.MouseMovement
+        and rightMouseHeld then
 
-		yaw = yaw - input.Delta.X * 0.004
-		pitch = math.clamp(
-			pitch - input.Delta.Y * 0.004,
-			math.rad(-35),
-			math.rad(35)
-		)
-	end
+        cameraYaw = cameraYaw - input.Delta.X * 0.004
+        cameraPitch = math.clamp(
+            cameraPitch - input.Delta.Y * 0.004,
+            math.rad(-35),
+            math.rad(35)
+        )
+    end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-	if input == activeTouch then
-		activeTouch = nil
-	end
+    if input == activeTouch then
+        activeTouch = nil
+    end
 
-	if input.UserInputType == Enum.UserInputType.MouseButton2 then
-		rightMouseHeld = false
-	end
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        rightMouseHeld = false
+    end
 end)
 
---==================================================
--- MAIN UPDATE LOOP
---==================================================
+--====================================================
+-- UPDATE LOOP
+--====================================================
 
-RunService.RenderStepped:Connect(function()
-	local camera = workspace.CurrentCamera
+RunService:BindToRenderStep(
+    "NeonCyberControlCenterCamera",
+    Enum.RenderPriority.Camera.Value + 1,
+    function()
+        local camera = workspace.CurrentCamera
 
-	-- Movement follows the currently selected target.
-	if moving then
-		local _, targetHumanoid, targetRoot = getCharacterParts(selectedPlayer)
-		local character = LocalPlayer.Character
-		local ownHumanoid = character and character:FindFirstChildOfClass("Humanoid")
-		local ownRoot = character and character:FindFirstChild("HumanoidRootPart")
+        -- Movement toward selected target.
+        if moving then
+            local character = player.Character
+            local humanoid = character
+                and character:FindFirstChildOfClass("Humanoid")
+            local root = character
+                and character:FindFirstChild("HumanoidRootPart")
 
-		if not selectedPlayer
-			or not targetRoot
-			or not targetHumanoid
-			or targetHumanoid.Health <= 0
-			or not ownRoot
-			or not ownHumanoid
-			or ownHumanoid.Health <= 0
-			or not movementVelocity
-			or movementRoot ~= ownRoot then
+            local targetCharacter = selectedPlayer
+                and selectedPlayer.Character
+            local targetHumanoid = targetCharacter
+                and targetCharacter:FindFirstChildOfClass("Humanoid")
+            local targetRoot = targetCharacter
+                and targetCharacter:FindFirstChild("HumanoidRootPart")
 
-			stopMovement()
-		else
-			local difference = targetRoot.Position - ownRoot.Position
-			local distance = difference.Magnitude
+            if not humanoid or humanoid.Health <= 0
+                or not root or root ~= moveRoot
+                or not targetHumanoid or targetHumanoid.Health <= 0
+                or not targetRoot or not moveVelocity then
 
-			if distance <= 5 then
-				movementVelocity.VectorVelocity = Vector3.zero
-				moveButton.Text = "STOP MOVE"
-				setStatus("Near target")
-			else
-				movementVelocity.VectorVelocity =
-					difference.Unit * MOVE_SPEED
-			end
-		end
-	end
+                stopMovement()
+            else
+                local difference = targetRoot.Position - root.Position
 
-	-- Camera lock aims toward the selected target every frame.
-	-- Camera CFrame is only controlled while lock is enabled.
-	if cameraLocked and camera then
-		local character = LocalPlayer.Character
-		local ownRoot = character and character:FindFirstChild("HumanoidRootPart")
-		local aimPart = getAimPart(selectedPlayer)
+                if difference.Magnitude <= 5 then
+                    moveVelocity.VectorVelocity = Vector3.zero
+                else
+                    moveVelocity.VectorVelocity = difference.Unit * speed
+                end
+            end
+        end
 
-		if not ownRoot or not aimPart then
-			unlockCamera()
-			return
-		end
+        -- Camera tracks the selected target while lock is active.
+        if cameraLocked and camera then
+            local character = player.Character
+            local root = character
+                and character:FindFirstChild("HumanoidRootPart")
+            local aimPart = getAimPart(selectedPlayer)
 
-		local rotation = CFrame.fromOrientation(pitch, yaw, 0)
-		local offset = rotation:VectorToWorldSpace(
-			Vector3.new(0, CAMERA_HEIGHT, CAMERA_DISTANCE)
-		)
+            if not root or not aimPart then
+                unlockCamera()
+                return
+            end
 
-		local cameraPosition = ownRoot.Position + offset
-		local aimPosition = aimPart.Position + Vector3.new(0, 0.4, 0)
+            local rotation = CFrame.fromOrientation(
+                cameraPitch,
+                cameraYaw,
+                0
+            )
 
-		local desiredCFrame = CFrame.lookAt(cameraPosition, aimPosition)
+            local offset = rotation:VectorToWorldSpace(
+                Vector3.new(0, cameraHeight, cameraDistance)
+            )
 
-		-- Smoothly follow without freezing the view.
-		camera.CFrame = camera.CFrame:Lerp(desiredCFrame, 0.22)
-	end
+            local cameraPosition = root.Position + offset
+            local targetPosition = aimPart.Position + Vector3.new(0, 0.4, 0)
+
+            local desired = CFrame.lookAt(cameraPosition, targetPosition)
+            camera.CFrame = camera.CFrame:Lerp(desired, 0.25)
+        end
+    end
+)
+
+--====================================================
+-- RESPAWN / CLEANUP
+--====================================================
+
+player.CharacterAdded:Connect(function()
+    stopMovement()
+
+    if cameraLocked then
+        unlockCamera()
+    end
 end)
 
--- Stop movement if the local character respawns.
-LocalPlayer.CharacterAdded:Connect(function()
-	stopMovement()
+Players.PlayerRemoving:Connect(function(leavingPlayer)
+    if leavingPlayer == selectedPlayer then
+        stopMovement()
 
-	if cameraLocked then
-		task.defer(function()
-			unlockCamera()
-		end)
-	end
+        if cameraLocked then
+            unlockCamera()
+        end
+    end
 end)
 
--- If the selected target leaves, stop safely.
-Players.PlayerRemoving:Connect(function(player)
-	if player == selectedPlayer then
-		stopMovement()
-		if cameraLocked then
-			unlockCamera()
-		end
-	end
-end)
-
-updateSpeedLabel()
+updateSpeed()
 setStatus("Ready • Select a player")
