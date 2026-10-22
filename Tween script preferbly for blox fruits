@@ -1,11 +1,10 @@
 
 --============================================================
---           NEON CYBER CONTROL CENTER
---               OBSIDIAN GOLD EDITION
+--       NEON CYBER CONTROL CENTER | OBSIDIAN GOLD
+--                    COMPLETE SCRIPT
 --============================================================
--- Complete LocalScript
--- Place in StarterPlayer > StarterPlayerScripts
--- For use in your own Roblox Studio experience.
+-- Place in StarterPlayer > StarterPlayerScripts.
+-- Intended for your own Roblox Studio experience.
 --============================================================
 
 local Players = game:GetService("Players")
@@ -16,60 +15,46 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- SETTINGS
-local MIN_SPEED = 1
-local MAX_SPEED = 500
-local SPEED_STEP = 50
-local DEFAULT_SPEED = 25
+-- CONFIGURATION
+local MIN_SPEED = 5
+local MAX_SPEED = 1000
+local SPEED_STEP = 25
+local DEFAULT_SPEED = 200
 local FOLLOW_DISTANCE = 5
 
 local tweenSpeed = DEFAULT_SPEED
-local selectedPlayer
+local selectedPlayer = nil
 local loopEnabled = false
 local loopGeneration = 0
-local activeTween
+local activeTween = nil
 local aimEnabled = false
-local aimConnection
-local savedCameraType
-local savedCameraSubject
+local aimConnection = nil
+local savedCameraType = nil
+local savedCameraSubject = nil
 
---============================================================
--- OBSIDIAN GOLD THEME
---============================================================
-
+-- LUXURY GOLD PALETTE
 local C = {
-    Background = Color3.fromRGB(9, 9, 10),
+    Background = Color3.fromRGB(8, 8, 9),
     Panel = Color3.fromRGB(17, 16, 14),
     Surface = Color3.fromRGB(29, 27, 22),
-    SurfaceHover = Color3.fromRGB(45, 40, 29),
-
+    Hover = Color3.fromRGB(47, 41, 29),
     Gold = Color3.fromRGB(224, 183, 91),
     BrightGold = Color3.fromRGB(255, 216, 120),
     Champagne = Color3.fromRGB(245, 225, 174),
     DeepGold = Color3.fromRGB(125, 91, 35),
-
     White = Color3.fromRGB(247, 243, 232),
     Muted = Color3.fromRGB(160, 151, 131),
     Green = Color3.fromRGB(164, 218, 133),
     Red = Color3.fromRGB(222, 92, 76),
 }
 
--- CLEAN UP OLD GUI
+-- REMOVE PREVIOUS COPY
 local old = PlayerGui:FindFirstChild("NeonCyberGold")
 if old then
     old:Destroy()
 end
 
---============================================================
--- GUI ROOT
---============================================================
-
-local gui = Instance.new("ScreenGui")
-gui.Name = "NeonCyberGold"
-gui.ResetOnSpawn = false
-gui.DisplayOrder = 50
-gui.Parent = PlayerGui
-
+-- GUI HELPERS
 local function create(className, properties, parent)
     local obj = Instance.new(className)
     for key, value in pairs(properties) do
@@ -89,7 +74,7 @@ local function border(obj, color, thickness)
     create("UIStroke", {
         Color = color or C.Gold,
         Thickness = thickness or 1,
-        Transparency = 0.12
+        Transparency = 0.1
     }, obj)
 end
 
@@ -106,42 +91,35 @@ local function text(parent, value, position, size, color, fontSize)
     }, parent)
 end
 
-local function makeButton(parent, value, position, size, background, foreground)
+local function makeButton(parent, value, position, size, bg, fg)
     local b = create("TextButton", {
         Text = value,
         Position = position,
         Size = size,
-        BackgroundColor3 = background or C.Surface,
-        TextColor3 = foreground or C.White,
+        BackgroundColor3 = bg or C.Surface,
+        TextColor3 = fg or C.White,
         Font = Enum.Font.GothamBold,
-        TextSize = 12,
+        TextSize = 14,
         BorderSizePixel = 0,
         AutoButtonColor = true,
     }, parent)
-
     round(b, 8)
     return b
 end
 
 local function makeDraggable(handle, target)
     local dragging = false
-    local dragStart
-    local startPosition
-    local inputConnection
+    local startPos
+    local startInput
 
     handle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
-
             dragging = true
-            dragStart = input.Position
-            startPosition = target.Position
+            startInput = input.Position
+            startPos = target.Position
 
-            if inputConnection then
-                inputConnection:Disconnect()
-            end
-
-            inputConnection = input.Changed:Connect(function()
+            input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragging = false
                 end
@@ -150,18 +128,14 @@ local function makeDraggable(handle, target)
     end)
 
     UserInputService.InputChanged:Connect(function(input)
-        if not dragging then return end
-
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch then
-
-            local delta = input.Position - dragStart
-
+        if dragging and (
+            input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch
+        ) then
+            local delta = input.Position - startInput
             target.Position = UDim2.new(
-                startPosition.X.Scale,
-                startPosition.X.Offset + delta.X,
-                startPosition.Y.Scale,
-                startPosition.Y.Offset + delta.Y
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
             )
         end
     end)
@@ -177,20 +151,22 @@ local function getHumanoid(player)
     return character and character:FindFirstChildOfClass("Humanoid")
 end
 
---============================================================
--- MAIN LUXURY PANEL
---============================================================
+-- MAIN WINDOW
+local gui = create("ScreenGui", {
+    Name = "NeonCyberGold",
+    ResetOnSpawn = false,
+    DisplayOrder = 50,
+}, PlayerGui)
 
 local panel = create("Frame", {
-    Name = "LuxuryPanel",
-    Size = UDim2.fromOffset(320, 440),
-    Position = UDim2.new(0, 24, 0.5, -220),
+    Name = "MainPanel",
+    Size = UDim2.fromOffset(340, 500),
+    Position = UDim2.new(0, 24, 0.5, -250),
     BackgroundColor3 = C.Background,
     BorderSizePixel = 0,
 }, gui)
-
 round(panel, 14)
-border(panel, C.Gold, 1.5)
+border(panel, C.Gold, 2)
 
 create("UIGradient", {
     Color = ColorSequence.new({
@@ -208,60 +184,42 @@ local header = create("Frame", {
 }, panel)
 round(header, 12)
 
-text(
-    header,
-    "N E O N   C Y B E R",
-    UDim2.fromOffset(16, 10),
-    UDim2.new(1, -65, 0, 25),
-    C.BrightGold,
-    17
-)
+text(header, "N E O N   C Y B E R",
+    UDim2.fromOffset(16, 9), UDim2.new(1, -65, 0, 27),
+    C.BrightGold, 17)
 
-text(
-    header,
-    "O B S I D I A N   G O L D",
-    UDim2.fromOffset(17, 37),
-    UDim2.new(1, -65, 0, 15),
-    C.Muted,
-    9
-)
+text(header, "O B S I D I A N   G O L D",
+    UDim2.fromOffset(17, 38), UDim2.new(1, -65, 0, 14),
+    C.Muted, 9)
 
-local hideButton = makeButton(
-    header, "—",
-    UDim2.new(1, -43, 0, 12),
-    UDim2.fromOffset(30, 28),
-    C.Surface, C.Gold
-)
+local hideButton = makeButton(header, "—",
+    UDim2.new(1, -43, 0, 12), UDim2.fromOffset(30, 28),
+    C.Surface, C.Gold)
 
 makeDraggable(header, panel)
 
--- DECORATIVE GOLD DIVIDER
 create("Frame", {
-    Position = UDim2.fromOffset(14, 69),
+    Position = UDim2.fromOffset(14, 70),
     Size = UDim2.new(1, -28, 0, 1),
     BackgroundColor3 = C.Gold,
     BorderSizePixel = 0,
 }, panel)
 
 -- PLAYER SELECTOR
-text(
-    panel, "01  /  PLAYER SELECTOR",
-    UDim2.fromOffset(16, 82),
-    UDim2.new(1, -32, 0, 20),
-    C.Gold, 11
-)
+text(panel, "01  /  PLAYER SELECTOR",
+    UDim2.fromOffset(16, 82), UDim2.new(1, -32, 0, 20),
+    C.Gold, 11)
 
 local playerList = create("ScrollingFrame", {
     Position = UDim2.fromOffset(14, 106),
-    Size = UDim2.new(1, -28, 0, 94),
+    Size = UDim2.new(1, -28, 0, 100),
     BackgroundColor3 = C.Panel,
     BorderSizePixel = 0,
-    ScrollBarThickness = 3,
+    ScrollBarThickness = 4,
     ScrollBarImageColor3 = C.Gold,
     AutomaticCanvasSize = Enum.AutomaticSize.Y,
     CanvasSize = UDim2.new(),
 }, panel)
-
 round(playerList, 8)
 
 create("UIPadding", {
@@ -275,12 +233,9 @@ create("UIListLayout", {
     SortOrder = Enum.SortOrder.Name,
 }, playerList)
 
-local targetLabel = text(
-    panel, "SELECTED TARGET  /  NONE",
-    UDim2.fromOffset(16, 207),
-    UDim2.new(1, -32, 0, 19),
-    C.Champagne, 10
-)
+local targetLabel = text(panel, "SELECTED TARGET  /  NONE",
+    UDim2.fromOffset(16, 211), UDim2.new(1, -32, 0, 20),
+    C.Champagne, 10)
 
 local function refreshPlayers()
     for _, child in ipairs(playerList:GetChildren()) do
@@ -290,7 +245,6 @@ local function refreshPlayers()
     end
 
     local list = Players:GetPlayers()
-
     table.sort(list, function(a, b)
         return a.Name:lower() < b.Name:lower()
     end)
@@ -300,12 +254,9 @@ local function refreshPlayers()
             local item = makeButton(
                 playerList,
                 player.DisplayName .. "  @" .. player.Name,
-                UDim2.new(),
-                UDim2.new(1, -5, 0, 27),
-                C.Surface,
-                C.White
+                UDim2.new(), UDim2.new(1, -5, 0, 30),
+                C.Surface, C.White
             )
-
             item.Name = player.Name
             item.TextSize = 11
 
@@ -319,135 +270,128 @@ local function refreshPlayers()
 end
 
 Players.PlayerAdded:Connect(refreshPlayers)
-
 Players.PlayerRemoving:Connect(function(player)
     if selectedPlayer == player then
         selectedPlayer = nil
         targetLabel.Text = "SELECTED TARGET  /  NONE"
-        stopAim = nil
     end
     refreshPlayers()
 end)
 
---============================================================
--- TWEEN SPEED: STUDS PER SECOND
---============================================================
-
+-- SPEED INPUT SECTION
 create("Frame", {
-    Position = UDim2.fromOffset(14, 234),
+    Position = UDim2.fromOffset(14, 240),
     Size = UDim2.new(1, -28, 0, 1),
     BackgroundColor3 = C.DeepGold,
     BorderSizePixel = 0,
 }, panel)
 
-text(
-    panel, "02  /  MOVEMENT VELOCITY",
-    UDim2.fromOffset(16, 245),
-    UDim2.new(1, -32, 0, 20),
-    C.Gold, 11
-)
+text(panel, "02  /  MOVEMENT VELOCITY",
+    UDim2.fromOffset(16, 250), UDim2.new(1, -32, 0, 22),
+    C.Gold, 11)
 
-local speedReadout = text(
-    panel, tostring(tweenSpeed) .. " STUDS / SEC",
-    UDim2.fromOffset(16, 270),
-    UDim2.new(1, -32, 0, 34),
-    C.BrightGold, 21
-)
-speedReadout.TextXAlignment = Enum.TextXAlignment.Center
-speedReadout.Font = Enum.Font.GothamBold
+text(panel, "Enter your desired movement speed",
+    UDim2.fromOffset(16, 275), UDim2.new(1, -32, 0, 18),
+    C.Muted, 10)
 
-local speedTrack = create("Frame", {
-    Position = UDim2.fromOffset(25, 311),
-    Size = UDim2.new(1, -50, 0, 3),
-    BackgroundColor3 = C.SurfaceHover,
+local speedBox = create("TextBox", {
+    Name = "SpeedInput",
+    Position = UDim2.fromOffset(16, 299),
+    Size = UDim2.new(1, -32, 0, 48),
+    BackgroundColor3 = C.Surface,
+    Text = tostring(DEFAULT_SPEED),
+    PlaceholderText = "Enter speed (5–1000)",
+    PlaceholderColor3 = C.Muted,
+    TextColor3 = C.BrightGold,
+    Font = Enum.Font.GothamBold,
+    TextSize = 22,
+    ClearTextOnFocus = false,
     BorderSizePixel = 0,
 }, panel)
-round(speedTrack, 3)
+round(speedBox, 9)
+border(speedBox, C.Gold, 1.5)
 
-local speedFill = create("Frame", {
-    Size = UDim2.new(
-        (tweenSpeed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED),
-        0, 1, 0
-    ),
-    BackgroundColor3 = C.Gold,
-    BorderSizePixel = 0,
-}, speedTrack)
-round(speedFill, 3)
+local speedCaption = text(panel, "CURRENT SPEED: 200 STUDS / SECOND",
+    UDim2.fromOffset(16, 352), UDim2.new(1, -32, 0, 20),
+    C.Champagne, 10)
 
-local function updateSpeed()
-    speedReadout.Text = tostring(tweenSpeed) .. " STUDS / SEC"
+local function setSpeed(value)
+    value = tonumber(value)
+    if not value then
+        speedBox.Text = tostring(tweenSpeed)
+        return
+    end
 
-    speedFill.Size = UDim2.new(
-        (tweenSpeed - MIN_SPEED) / (MAX_SPEED - MIN_SPEED),
-        0, 1, 0
-    )
+    tweenSpeed = math.clamp(math.floor(value), MIN_SPEED, MAX_SPEED)
+    speedBox.Text = tostring(tweenSpeed)
+    speedCaption.Text = "CURRENT SPEED: " .. tweenSpeed .. " STUDS / SECOND"
 end
 
-local minusButton = makeButton(
-    panel, "−",
-    UDim2.fromOffset(16, 326),
-    UDim2.fromOffset(55, 34),
-    C.Surface, C.Gold
-)
+speedBox.FocusLost:Connect(function()
+    setSpeed(speedBox.Text)
+end)
 
-local resetButton = makeButton(
-    panel, "RESET",
-    UDim2.new(0.5, -42, 0, 326),
-    UDim2.fromOffset(84, 34),
-    C.Surface, C.Champagne
-)
+-- LARGE STEP BUTTONS
+local minusButton = makeButton(panel, "−  25",
+    UDim2.fromOffset(16, 382), UDim2.new(0.5, -23, 0, 42),
+    C.Surface, C.Gold)
 
-local plusButton = makeButton(
-    panel, "+",
-    UDim2.new(1, -71, 0, 326),
-    UDim2.fromOffset(55, 34),
-    C.Gold, C.Background
-)
+local plusButton = makeButton(panel, "+  25",
+    UDim2.new(0.5, 7, 0, 382), UDim2.new(0.5, -23, 0, 42),
+    C.Gold, C.Background)
+
+minusButton.TextSize = 15
+plusButton.TextSize = 15
+
+local resetButton = makeButton(panel, "RESET TO 200",
+    UDim2.fromOffset(16, 431), UDim2.new(1, -32, 0, 32),
+    C.Surface, C.Champagne)
 
 minusButton.Activated:Connect(function()
-    tweenSpeed = math.clamp(
-        tweenSpeed - SPEED_STEP, MIN_SPEED, MAX_SPEED
-    )
-    updateSpeed()
+    setSpeed(tweenSpeed - SPEED_STEP)
 end)
 
 plusButton.Activated:Connect(function()
-    tweenSpeed = math.clamp(
-        tweenSpeed + SPEED_STEP, MIN_SPEED, MAX_SPEED
-    )
-    updateSpeed()
+    setSpeed(tweenSpeed + SPEED_STEP)
 end)
 
 resetButton.Activated:Connect(function()
-    tweenSpeed = DEFAULT_SPEED
-    updateSpeed()
+    setSpeed(DEFAULT_SPEED)
+end)
+
+-- STATUS
+local status = text(panel, "●  SYSTEM READY",
+    UDim2.fromOffset(16, 469), UDim2.new(1, -32, 0, 18),
+    C.Green, 10)
+
+-- FLOATING OPEN BUTTON
+local floating = makeButton(gui, "✦  GOLD",
+    UDim2.fromOffset(22, 100), UDim2.fromOffset(105, 40),
+    C.Panel, C.BrightGold)
+border(floating, C.Gold, 1.5)
+floating.Visible = false
+makeDraggable(floating, floating)
+
+hideButton.Activated:Connect(function()
+    panel.Visible = false
+    floating.Visible = true
+end)
+
+floating.Activated:Connect(function()
+    panel.Visible = true
+    floating.Visible = false
 end)
 
 --============================================================
--- STATUS AND LOOP TWEEN
+-- SMOOTH LOOP TWEEN
+-- Speed is distance / duration, measured in studs per second.
 --============================================================
 
-create("Frame", {
-    Position = UDim2.fromOffset(14, 372),
-    Size = UDim2.new(1, -28, 0, 1),
-    BackgroundColor3 = C.DeepGold,
-    BorderSizePixel = 0,
-}, panel)
-
-local status = text(
-    panel, "●  SYSTEM READY",
-    UDim2.fromOffset(16, 382),
-    UDim2.new(1, -32, 0, 19),
-    C.Green, 10
-)
-
-local loopButton = makeButton(
-    panel, "START LOOP TWEEN",
-    UDim2.fromOffset(14, 408),
-    UDim2.new(1, -28, 0, 30),
-    C.Gold, C.Background
-)
-loopButton.TextSize = 11
+local loopButton = makeButton(gui, "START LOOP TWEEN",
+    UDim2.fromOffset(22, 150), UDim2.fromOffset(190, 40),
+    C.Gold, C.Background)
+border(loopButton, C.DeepGold, 1)
+makeDraggable(loopButton, loopButton)
 
 local function stopLoop()
     loopEnabled = false
@@ -460,20 +404,13 @@ local function stopLoop()
 
     loopButton.Text = "START LOOP TWEEN"
     loopButton.BackgroundColor3 = C.Gold
-    loopButton.TextColor3 = C.Background
     status.Text = "●  SYSTEM READY"
     status.TextColor3 = C.Green
 end
 
 local function startLoop()
-    if not selectedPlayer or selectedPlayer == LocalPlayer then
+    if not selectedPlayer then
         status.Text = "●  SELECT A TARGET FIRST"
-        status.TextColor3 = C.Red
-        return
-    end
-
-    if not getRoot(LocalPlayer) or not getRoot(selectedPlayer) then
-        status.Text = "●  CHARACTER NOT READY"
         status.TextColor3 = C.Red
         return
     end
@@ -484,48 +421,42 @@ local function startLoop()
 
     loopButton.Text = "STOP LOOP TWEEN"
     loopButton.BackgroundColor3 = C.Red
-    loopButton.TextColor3 = C.White
-    status.Text = "●  MOVEMENT ACTIVE"
+    status.Text = "●  LOOP ACTIVE"
     status.TextColor3 = C.BrightGold
 
     task.spawn(function()
         while loopEnabled and loopGeneration == generation do
-            local myRoot = getRoot(LocalPlayer)
+            local root = getRoot(LocalPlayer)
             local targetRoot = getRoot(selectedPlayer)
             local humanoid = getHumanoid(LocalPlayer)
 
-            if not myRoot or not targetRoot or not humanoid
+            if not root or not targetRoot or not humanoid
                 or humanoid.Health <= 0 then
                 status.Text = "●  CHARACTER NOT READY"
                 status.TextColor3 = C.Red
                 break
             end
 
-            local destinationPosition =
-                targetRoot.Position
+            local destination = targetRoot.Position
                 - targetRoot.CFrame.LookVector * FOLLOW_DISTANCE
 
-            local distance = (destinationPosition - myRoot.Position).Magnitude
+            local distance = (destination - root.Position).Magnitude
 
             if distance < 0.5 then
-                task.wait(0.1)
+                task.wait(0.08)
             else
-                -- Duration is calculated from distance / SPS.
-                -- This keeps the configured movement speed consistent.
+                -- Recalculate duration to maintain the selected SPS.
                 local duration = distance / tweenSpeed
 
                 activeTween = TweenService:Create(
-                    myRoot,
+                    root,
                     TweenInfo.new(
                         duration,
                         Enum.EasingStyle.Linear,
                         Enum.EasingDirection.Out
                     ),
                     {
-                        CFrame = CFrame.lookAt(
-                            destinationPosition,
-                            targetRoot.Position
-                        )
+                        CFrame = CFrame.lookAt(destination, targetRoot.Position)
                     }
                 )
 
@@ -533,7 +464,7 @@ local function startLoop()
                 activeTween.Completed:Wait()
                 activeTween = nil
 
-                task.wait(0.05)
+                task.wait(0.03)
             end
         end
 
@@ -551,44 +482,14 @@ loopButton.Activated:Connect(function()
     end
 end)
 
---============================================================
--- FLOATING CONTROL
---============================================================
-
-local floating = makeButton(
-    gui, "✦  GOLD",
-    UDim2.fromOffset(22, 100),
-    UDim2.fromOffset(100, 38),
-    C.Panel, C.BrightGold
-)
-border(floating, C.Gold, 1.5)
-floating.Visible = false
-makeDraggable(floating, floating)
-
-hideButton.Activated:Connect(function()
-    panel.Visible = false
-    floating.Visible = true
-end)
-
-floating.Activated:Connect(function()
-    panel.Visible = true
-    floating.Visible = false
-end)
-
---============================================================
--- CAMERA TRACKING TOGGLE
---============================================================
-
-local aimButton = makeButton(
-    gui, "CAMERA TRACK  /  OFF",
-    UDim2.fromOffset(22, 150),
-    UDim2.fromOffset(180, 36),
-    C.Panel, C.Gold
-)
+-- CAMERA TRACK BUTTON
+local aimButton = makeButton(gui, "CAMERA TRACK  /  OFF",
+    UDim2.fromOffset(22, 200), UDim2.fromOffset(190, 38),
+    C.Panel, C.Gold)
 border(aimButton, C.DeepGold, 1)
 makeDraggable(aimButton, aimButton)
 
-local function stopCameraTracking()
+local function stopAim()
     aimEnabled = false
 
     if aimConnection then
@@ -599,19 +500,17 @@ local function stopCameraTracking()
     local camera = workspace.CurrentCamera
     if camera then
         camera.CameraType = savedCameraType or Enum.CameraType.Custom
-
         if savedCameraSubject and savedCameraSubject.Parent then
             camera.CameraSubject = savedCameraSubject
         end
     end
 
     aimButton.Text = "CAMERA TRACK  /  OFF"
-    aimButton.TextColor3 = C.Gold
 end
 
 aimButton.Activated:Connect(function()
     if aimEnabled then
-        stopCameraTracking()
+        stopAim()
         return
     end
 
@@ -630,13 +529,11 @@ aimButton.Activated:Connect(function()
 
     aimEnabled = true
     aimButton.Text = "CAMERA TRACK  /  ON"
-    aimButton.TextColor3 = C.BrightGold
 
     aimConnection = RunService.RenderStepped:Connect(function()
         local targetRoot = getRoot(selectedPlayer)
-
         if not targetRoot then
-            stopCameraTracking()
+            stopAim()
             return
         end
 
@@ -650,10 +547,7 @@ aimButton.Activated:Connect(function()
     end)
 end)
 
---============================================================
--- RESPAWN HANDLING
---============================================================
-
+-- RESPAWN CLEANUP
 LocalPlayer.CharacterAdded:Connect(function()
     if loopEnabled then
         stopLoop()
@@ -662,6 +556,6 @@ end)
 
 -- INITIALIZE
 refreshPlayers()
-updateSpeed()
+setSpeed(DEFAULT_SPEED)
 
-print("NEON CYBER CONTROL CENTER | OBSIDIAN GOLD loaded")
+print("NEON CYBER CONTROL CENTER | OBSIDIAN GOLD loaded successfully")
