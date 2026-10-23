@@ -17,6 +17,16 @@ local CONFIG = {
     MAX_GROUND_HEIGHT_DIFFERENCE = 5,
     MIN_FOLLOW_SPEED = 0.1,
     MAX_FOLLOW_SPEED = 500,
+
+    -- Smooth, fast follow tuning
+    FOLLOW_ACCELERATION = 1800,
+    FOLLOW_BRAKING = 2200,
+    FOLLOW_RESPONSE = 12,
+    FOLLOW_STOP_DISTANCE = 0.15,
+
+    AIR_HORIZONTAL_RESPONSE = 12,
+    AIR_VERTICAL_RESPONSE = 12,
+    AIR_MAX_VERTICAL_SPEED = 500,
 }
 
 --// CLEAN UP OLD GUI
@@ -37,10 +47,11 @@ local originalCollision = {}
 local characterConnections = {}
 local rosterButtons = {}
 
---// LINEARVELOCITY MOVEMENT STATE
+--// MOVEMENT STATE
 local moveAttachment = nil
 local moveVelocity = nil
 local moveRoot = nil
+local currentVelocity = Vector3.zero
 
 local function getCharacter(player)
     return player and player.Character
@@ -81,9 +92,11 @@ local MUTED = Color3.fromRGB(115, 150, 176)
 
 local function make(className, props, parent)
     local obj = Instance.new(className)
+
     for key, value in pairs(props or {}) do
         obj[key] = value
     end
+
     obj.Parent = parent
     return obj
 end
@@ -206,10 +219,10 @@ local main = make("Frame", {
     BackgroundTransparency = 0.06,
     BorderSizePixel = 0,
 }, gui)
+
 round(main, 12)
 local mainStroke = stroke(main, CYAN, 1.5, 0.12)
 
--- Start with the main panel hidden.
 main.Visible = false
 
 make("UIGradient", {
@@ -227,6 +240,7 @@ local header = make("Frame", {
     BackgroundColor3 = PANEL,
     BorderSizePixel = 0,
 }, main)
+
 round(header, 12)
 
 make("Frame", {
@@ -236,16 +250,20 @@ make("Frame", {
     BorderSizePixel = 0,
 }, header)
 
-label(header, "N E O N  //  C Y B E R", UDim2.new(1, -92, 1, 0),
+label(header, "N E O N  //  C Y B E R",
+    UDim2.new(1, -92, 1, 0),
     UDim2.fromOffset(13, 0), 14, CYAN)
 
-label(header, "CONTROL CENTER", UDim2.new(1, -20, 0, 15),
+label(header, "CONTROL CENTER",
+    UDim2.new(1, -20, 0, 15),
     UDim2.fromOffset(14, 27), 9, MUTED)
 
-local minimizeButton = button(header, "—", UDim2.fromOffset(30, 26),
+local minimizeButton = button(header, "—",
+    UDim2.fromOffset(30, 26),
     UDim2.new(1, -70, 0, 8), WHITE)
 
-local closeButton = button(header, "×", UDim2.fromOffset(27, 26),
+local closeButton = button(header, "×",
+    UDim2.fromOffset(27, 26),
     UDim2.new(1, -34, 0, 8), RED)
 
 makeDraggable(main, header)
@@ -257,6 +275,7 @@ local statusBar = make("Frame", {
     BackgroundColor3 = PANEL,
     BorderSizePixel = 0,
 }, main)
+
 round(statusBar, 6)
 
 local statusDot = make("Frame", {
@@ -265,13 +284,16 @@ local statusDot = make("Frame", {
     BackgroundColor3 = GREEN,
     BorderSizePixel = 0,
 }, statusBar)
+
 round(statusDot, 7)
 
 local statusText = label(statusBar, "SYSTEM ONLINE",
-    UDim2.new(1, -25, 1, 0), UDim2.fromOffset(22, 0), 10, GREEN)
+    UDim2.new(1, -25, 1, 0),
+    UDim2.fromOffset(22, 0), 10, GREEN)
 
 --// SELECTED PLAYER
-label(main, "01  /  PLAYER TARGET", UDim2.new(1, -20, 0, 18),
+label(main, "01  /  PLAYER TARGET",
+    UDim2.new(1, -20, 0, 18),
     UDim2.fromOffset(12, 83), 11, CYAN)
 
 local selectedDisplay = make("TextLabel", {
@@ -285,15 +307,18 @@ local selectedDisplay = make("TextLabel", {
     Font = Enum.Font.Code,
     TextXAlignment = Enum.TextXAlignment.Left,
 }, main)
+
 round(selectedDisplay, 6)
 stroke(selectedDisplay, BLUE, 1, 0.65)
 
 --// PLAYER ROSTER
-label(main, "ACTIVE PLAYERS", UDim2.new(0.6, 0, 0, 17),
+label(main, "ACTIVE PLAYERS",
+    UDim2.new(0.6, 0, 0, 17),
     UDim2.fromOffset(12, 143), 10, MUTED)
 
 local refreshButton = button(main, "↻ REFRESH",
-    UDim2.fromOffset(88, 24), UDim2.new(1, -98, 0, 139), CYAN)
+    UDim2.fromOffset(88, 24),
+    UDim2.new(1, -98, 0, 139), CYAN)
 
 local roster = make("ScrollingFrame", {
     Name = "PlayerRoster",
@@ -306,6 +331,7 @@ local roster = make("ScrollingFrame", {
     CanvasSize = UDim2.new(0, 0, 0, 0),
     AutomaticCanvasSize = Enum.AutomaticSize.Y,
 }, main)
+
 round(roster, 7)
 
 make("UIListLayout", {
@@ -321,10 +347,12 @@ make("UIPadding", {
 }, roster)
 
 --// FOLLOW SPEED INPUT
-label(main, "02  /  FOLLOW VELOCITY", UDim2.new(1, -20, 0, 18),
+label(main, "02  /  FOLLOW VELOCITY",
+    UDim2.new(1, -20, 0, 18),
     UDim2.fromOffset(12, 278), 11, CYAN)
 
-label(main, "STUDS / SEC", UDim2.new(0, 100, 0, 25),
+label(main, "STUDS / SEC",
+    UDim2.new(0, 100, 0, 25),
     UDim2.fromOffset(12, 301), 10, MUTED)
 
 local speedInput = make("TextBox", {
@@ -340,52 +368,68 @@ local speedInput = make("TextBox", {
     Font = Enum.Font.Code,
     ClearTextOnFocus = false,
 }, main)
+
 round(speedInput, 6)
 stroke(speedInput, GREEN, 1, 0.4)
 
 local applySpeedButton = button(main, "APPLY",
-    UDim2.fromOffset(82, 28), UDim2.new(1, -94, 0, 299), GREEN)
+    UDim2.fromOffset(82, 28),
+    UDim2.new(1, -94, 0, 299), GREEN)
 
 label(main, "Range: 0.1–500 studs/sec",
-    UDim2.new(1, -20, 0, 15), UDim2.fromOffset(12, 329), 9, MUTED)
+    UDim2.new(1, -20, 0, 15),
+    UDim2.fromOffset(12, 329), 9, MUTED)
 
 --// ACTION BUTTONS
 local followButton = button(main, "▶  START MOVE",
-    UDim2.new(0.5, -15, 0, 34), UDim2.fromOffset(10, 351), GREEN)
+    UDim2.new(0.5, -15, 0, 34),
+    UDim2.fromOffset(10, 351), GREEN)
 
 local camButton = button(main, "◎  CAM LOCK: OFF",
-    UDim2.new(0.5, -15, 0, 34), UDim2.new(0.5, 5, 0, 351), CYAN)
+    UDim2.new(0.5, -15, 0, 34),
+    UDim2.new(0.5, 5, 0, 351), CYAN)
 
 local noclipButton = button(main, "◇  NOCLIP: OFF",
-    UDim2.new(0.5, -15, 0, 31), UDim2.fromOffset(10, 392), BLUE)
+    UDim2.new(0.5, -15, 0, 31),
+    UDim2.fromOffset(10, 392), BLUE)
 
 local destroyButton = button(main, "DESTROY GUI",
-    UDim2.new(0.5, -15, 0, 31), UDim2.new(0.5, 5, 0, 392), RED)
+    UDim2.new(0.5, -15, 0, 31),
+    UDim2.new(0.5, 5, 0, 392), RED)
 
 label(main, "N  /  TOGGLE PANEL     •     DRAG HEADER TO MOVE",
-    UDim2.new(1, -20, 0, 17), UDim2.fromOffset(12, 433), 9, MUTED)
+    UDim2.new(1, -20, 0, 17),
+    UDim2.fromOffset(12, 433), 9, MUTED)
 
 --// FLOATING CONTROLS
 local floating = make("Frame", {
     Name = "FloatingControls",
-    Size = UDim2.fromOffset(160, 83),
+    Size = UDim2.fromOffset(160, 112),
     Position = UDim2.new(0, 24, 0.5, 260),
     BackgroundColor3 = BG,
     BackgroundTransparency = 0.08,
     BorderSizePixel = 0,
 }, gui)
+
 round(floating, 10)
 stroke(floating, CYAN, 1.2, 0.1)
 makeDraggable(floating)
 
-local floatingHeader = label(floating, "DRAG  /  QUICK ACCESS",
-    UDim2.new(1, -12, 0, 18), UDim2.fromOffset(7, 2), 9, MUTED)
+label(floating, "DRAG  /  QUICK ACCESS",
+    UDim2.new(1, -12, 0, 18),
+    UDim2.fromOffset(7, 2), 9, MUTED)
 
 local floatingFollow = button(floating, "▶ START MOVE",
-    UDim2.new(1, -12, 0, 26), UDim2.fromOffset(6, 23), GREEN)
+    UDim2.new(1, -12, 0, 26),
+    UDim2.fromOffset(6, 23), GREEN)
 
 local floatingCam = button(floating, "◎ CAM LOCK: OFF",
-    UDim2.new(1, -12, 0, 26), UDim2.fromOffset(6, 52), CYAN)
+    UDim2.new(1, -12, 0, 26),
+    UDim2.fromOffset(6, 52), CYAN)
+
+local openGuiButton = button(floating, "OPEN GUI",
+    UDim2.new(1, -12, 0, 26),
+    UDim2.fromOffset(6, 81), CYAN)
 
 --// SPEED SETTING
 local function applySpeed()
@@ -405,7 +449,8 @@ local function applySpeed()
     )
 
     speedInput.Text = tostring(CONFIG.FOLLOW_SPEED)
-    statusText.Text = "SPEED SET: " .. tostring(CONFIG.FOLLOW_SPEED) .. " STUDS/SEC"
+    statusText.Text = "SPEED SET: "
+        .. tostring(CONFIG.FOLLOW_SPEED) .. " STUDS/SEC"
     statusText.TextColor3 = GREEN
 end
 
@@ -439,6 +484,7 @@ local function refreshRoster()
     rosterButtons = {}
 
     local playerList = Players:GetPlayers()
+
     table.sort(playerList, function(a, b)
         local aName = a.DisplayName:lower()
         local bName = b.DisplayName:lower()
@@ -486,18 +532,7 @@ Players.PlayerRemoving:Connect(function(targetPlayer)
     if selectedPlayer == targetPlayer then
         selectedPlayer = nil
         followEnabled = false
-
-        if moveVelocity then
-            moveVelocity:Destroy()
-            moveVelocity = nil
-        end
-
-        if moveAttachment then
-            moveAttachment:Destroy()
-            moveAttachment = nil
-        end
-
-        moveRoot = nil
+        stopMovementConstraint()
 
         followButton.Text = "▶  START MOVE"
         floatingFollow.Text = "▶ START MOVE"
@@ -528,9 +563,10 @@ local function getSafeDestination(targetRoot, localCharacter, targetHumanoid)
     local desiredX = targetPosition.X + offset.X
     local desiredZ = targetPosition.Z + offset.Z
 
-    -- Airborne targets: follow their current vertical position.
-    -- Do not raycast down or force the destination back to the ground.
-    if targetHumanoid and targetHumanoid.FloorMaterial == Enum.Material.Air then
+    -- Follow the target's actual height when airborne.
+    if targetHumanoid
+        and targetHumanoid.FloorMaterial == Enum.Material.Air then
+
         return Vector3.new(
             desiredX,
             targetPosition.Y,
@@ -538,7 +574,7 @@ local function getSafeDestination(targetRoot, localCharacter, targetHumanoid)
         )
     end
 
-    -- Grounded targets retain the original ground-safety checks.
+    -- Ground targets retain ground-safety checks.
     local desired = Vector3.new(
         desiredX,
         localRoot.Position.Y,
@@ -605,9 +641,10 @@ local function clearMovementConstraint()
     end
 
     moveRoot = nil
+    currentVelocity = Vector3.zero
 end
 
---// CREATE LINEARVELOCITY CONTROLLER
+--// CREATE MOVEMENT CONTROLLER
 local function createMovementConstraint(root)
     clearMovementConstraint()
 
@@ -621,18 +658,15 @@ local function createMovementConstraint(root)
     moveVelocity.Name = "NeonFollowVelocity"
     moveVelocity.Attachment0 = moveAttachment
     moveVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
-    moveVelocity.VelocityConstraintMode =
-        Enum.VelocityConstraintMode.Vector
+    moveVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
     moveVelocity.ForceLimitsEnabled = false
     moveVelocity.VectorVelocity = Vector3.zero
     moveVelocity.Parent = root
+
+    currentVelocity = Vector3.zero
 end
 
 local function stopMovementConstraint()
-    if moveVelocity then
-        moveVelocity.VectorVelocity = Vector3.zero
-    end
-
     clearMovementConstraint()
 end
 
@@ -766,11 +800,11 @@ LocalPlayer.CharacterAdded:Connect(function()
     table.clear(originalCollision)
 end)
 
---// FOLLOW + CAMERA UPDATE
+--// SMOOTH FOLLOW + CAMERA UPDATE
 RunService:BindToRenderStep(
     "NeonCyberControlCenterUpdate",
     Enum.RenderPriority.Camera.Value + 1,
-    function()
+    function(deltaTime)
         if destroyed then
             return
         end
@@ -819,6 +853,7 @@ RunService:BindToRenderStep(
         )
 
         if not destination then
+            currentVelocity = Vector3.zero
             moveVelocity.VectorVelocity = Vector3.zero
 
             statusText.Text = "WAITING FOR SAFE GROUND"
@@ -829,7 +864,8 @@ RunService:BindToRenderStep(
         local difference = destination - localRoot.Position
         local distance = difference.Magnitude
 
-        if distance < 0.15 then
+        if distance <= CONFIG.FOLLOW_STOP_DISTANCE then
+            currentVelocity = Vector3.zero
             moveVelocity.VectorVelocity = Vector3.zero
 
             statusText.Text =
@@ -838,8 +874,84 @@ RunService:BindToRenderStep(
             return
         end
 
-        moveVelocity.VectorVelocity =
-            difference.Unit * CONFIG.FOLLOW_SPEED
+        local airborne =
+            targetHumanoid.FloorMaterial == Enum.Material.Air
+
+        local desiredVelocity
+
+        if airborne then
+            -- Independent 3D pursuit, including vertical movement.
+            local horizontalDifference = Vector3.new(
+                difference.X,
+                0,
+                difference.Z
+            )
+
+            local horizontalDistance = horizontalDifference.Magnitude
+            local horizontalSpeed = math.min(
+                CONFIG.FOLLOW_SPEED,
+                horizontalDistance * CONFIG.AIR_HORIZONTAL_RESPONSE
+            )
+
+            local horizontalVelocity = Vector3.zero
+
+            if horizontalDistance > CONFIG.FOLLOW_STOP_DISTANCE then
+                horizontalVelocity =
+                    horizontalDifference.Unit * horizontalSpeed
+            end
+
+            local verticalSpeed = math.clamp(
+                difference.Y * CONFIG.AIR_VERTICAL_RESPONSE,
+                -math.min(CONFIG.FOLLOW_SPEED, CONFIG.AIR_MAX_VERTICAL_SPEED),
+                math.min(CONFIG.FOLLOW_SPEED, CONFIG.AIR_MAX_VERTICAL_SPEED)
+            )
+
+            desiredVelocity = Vector3.new(
+                horizontalVelocity.X,
+                verticalSpeed,
+                horizontalVelocity.Z
+            )
+        else
+            -- Distance-based ground speed: fast when far away,
+            -- controlled when approaching the destination.
+            local direction = difference.Unit
+            local brakingSpeed = math.sqrt(
+                2 * CONFIG.FOLLOW_BRAKING * distance
+            )
+
+            local targetSpeed = math.min(
+                CONFIG.FOLLOW_SPEED,
+                brakingSpeed
+            )
+
+            desiredVelocity = direction * targetSpeed
+        end
+
+        -- Accelerate rapidly toward the desired velocity while
+        -- smoothing changes to avoid abrupt velocity snapping.
+        local response = airborne
+            and CONFIG.AIR_HORIZONTAL_RESPONSE
+            or CONFIG.FOLLOW_RESPONSE
+
+        local alpha = 1 - math.exp(-response * math.max(deltaTime, 0))
+        local smoothedVelocity = currentVelocity:Lerp(
+            desiredVelocity,
+            alpha
+        )
+
+        local maxChange = (
+            CONFIG.FOLLOW_ACCELERATION * math.max(deltaTime, 0)
+        )
+
+        local velocityChange = smoothedVelocity - currentVelocity
+
+        if velocityChange.Magnitude > maxChange then
+            smoothedVelocity = currentVelocity
+                + velocityChange.Unit * maxChange
+        end
+
+        currentVelocity = smoothedVelocity
+        moveVelocity.VectorVelocity = currentVelocity
 
         statusText.Text =
             "FOLLOW: " .. tostring(CONFIG.FOLLOW_SPEED) .. " STUDS/SEC"
@@ -852,16 +964,12 @@ local function toggleMinimize()
     minimized = not minimized
     main.Visible = not minimized
 
-    if minimized then
-        floatingHeader.Text = "DRAG  /  QUICK ACCESS"
-    end
+    openGuiButton.Text = minimized and "OPEN GUI" or "CLOSE GUI"
 end
 
 minimizeButton.Activated:Connect(toggleMinimize)
-
-closeButton.Activated:Connect(function()
-    toggleMinimize()
-end)
+closeButton.Activated:Connect(toggleMinimize)
+openGuiButton.Activated:Connect(toggleMinimize)
 
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then
