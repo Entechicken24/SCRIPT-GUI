@@ -6,6 +6,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local SoundService = game:GetService("SoundService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -18,7 +19,6 @@ local CONFIG = {
     MIN_FOLLOW_SPEED = 0.1,
     MAX_FOLLOW_SPEED = 500,
 
-    -- Smooth, fast follow tuning
     FOLLOW_ACCELERATION = 1800,
     FOLLOW_BRAKING = 2200,
     FOLLOW_RESPONSE = 12,
@@ -27,6 +27,9 @@ local CONFIG = {
     AIR_HORIZONTAL_RESPONSE = 12,
     AIR_VERTICAL_RESPONSE = 12,
     AIR_MAX_VERTICAL_SPEED = 500,
+
+    CLICK_SOUND_ID = "rbxassetid://6895079853",
+    CLICK_SOUND_VOLUME = 0.45,
 }
 
 --// CLEAN UP OLD GUI
@@ -39,12 +42,13 @@ end
 local selectedPlayer = nil
 local followEnabled = false
 local camLockEnabled = false
-local noclipEnabled = false
+local noclipEnabled = true
 local minimized = true
 local destroyed = false
 
 local originalCollision = {}
 local characterConnections = {}
+local globalConnections = {}
 local rosterButtons = {}
 
 --// MOVEMENT STATE
@@ -101,6 +105,23 @@ local function make(className, props, parent)
     return obj
 end
 
+--// UI CLICK SOUND
+local clickSound = Instance.new("Sound")
+clickSound.Name = "NeonClickSound"
+clickSound.SoundId = CONFIG.CLICK_SOUND_ID
+clickSound.Volume = CONFIG.CLICK_SOUND_VOLUME
+clickSound.Parent = SoundService
+
+local function playClickSound()
+    if destroyed or not clickSound.Parent then
+        return
+    end
+
+    clickSound:Stop()
+    clickSound.TimePosition = 0
+    clickSound:Play()
+end
+
 local function round(object, radius)
     make("UICorner", {
         CornerRadius = UDim.new(0, radius or 8)
@@ -145,6 +166,9 @@ local function button(parent, text, size, position, color)
 
     round(b, 7)
     stroke(b, color or CYAN, 1, 0.35)
+
+    -- Every button gets a click sound, including roster buttons.
+    b.Activated:Connect(playClickSound)
 
     b.MouseEnter:Connect(function()
         if b.Parent then
@@ -194,7 +218,7 @@ local function makeDraggable(object, dragHandle)
         end
     end)
 
-    UserInputService.InputChanged:Connect(function(input)
+    local connection = UserInputService.InputChanged:Connect(function(input)
         if dragging and (input == dragInput
             or input.UserInputType == Enum.UserInputType.MouseMovement) then
 
@@ -208,6 +232,8 @@ local function makeDraggable(object, dragHandle)
             )
         end
     end)
+
+    table.insert(globalConnections, connection)
 end
 
 --// MAIN PANEL
@@ -222,7 +248,6 @@ local main = make("Frame", {
 
 round(main, 12)
 local mainStroke = stroke(main, CYAN, 1.5, 0.12)
-
 main.Visible = false
 
 make("UIGradient", {
@@ -389,9 +414,10 @@ local camButton = button(main, "◎  CAM LOCK: OFF",
     UDim2.new(0.5, -15, 0, 34),
     UDim2.new(0.5, 5, 0, 351), CYAN)
 
-local noclipButton = button(main, "◇  NOCLIP: OFF",
+-- Noclip starts ON and green.
+local noclipButton = button(main, "◇  NOCLIP: ON",
     UDim2.new(0.5, -15, 0, 31),
-    UDim2.fromOffset(10, 392), BLUE)
+    UDim2.fromOffset(10, 392), GREEN)
 
 local destroyButton = button(main, "DESTROY GUI",
     UDim2.new(0.5, -15, 0, 31),
@@ -435,7 +461,9 @@ local openGuiButton = button(floating, "OPEN GUI",
 local function applySpeed()
     local value = tonumber(speedInput.Text)
 
-    if not value or value ~= value then
+    if not value or value ~= value
+        or value == math.huge or value == -math.huge then
+
         speedInput.Text = tostring(CONFIG.FOLLOW_SPEED)
         statusText.Text = "INVALID SPEED VALUE"
         statusText.TextColor3 = RED
@@ -526,26 +554,9 @@ local function refreshRoster()
 end
 
 refreshButton.Activated:Connect(refreshRoster)
-Players.PlayerAdded:Connect(refreshRoster)
+table.insert(globalConnections, Players.PlayerAdded:Connect(refreshRoster))
 
-Players.PlayerRemoving:Connect(function(targetPlayer)
-    if selectedPlayer == targetPlayer then
-        selectedPlayer = nil
-        followEnabled = false
-        stopMovementConstraint()
-
-        followButton.Text = "▶  START MOVE"
-        floatingFollow.Text = "▶ START MOVE"
-        followButton.TextColor3 = GREEN
-        floatingFollow.TextColor3 = GREEN
-    end
-
-    refreshRoster()
-end)
-
-refreshRoster()
-
---// FOLLOW SYSTEM
+--// FOLLOW SYSTEM RAYCAST SETUP
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 rayParams.IgnoreWater = false
@@ -559,22 +570,15 @@ local function getSafeDestination(targetRoot, localCharacter, targetHumanoid)
     end
 
     local offset = targetRoot.CFrame.LookVector * CONFIG.FOLLOW_DISTANCE
-
     local desiredX = targetPosition.X + offset.X
     local desiredZ = targetPosition.Z + offset.Z
 
-    -- Follow the target's actual height when airborne.
     if targetHumanoid
         and targetHumanoid.FloorMaterial == Enum.Material.Air then
 
-        return Vector3.new(
-            desiredX,
-            targetPosition.Y,
-            desiredZ
-        )
+        return Vector3.new(desiredX, targetPosition.Y, desiredZ)
     end
 
-    -- Ground targets retain ground-safety checks.
     local desired = Vector3.new(
         desiredX,
         localRoot.Position.Y,
@@ -587,7 +591,6 @@ local function getSafeDestination(targetRoot, localCharacter, targetHumanoid)
     }
 
     local origin = desired + Vector3.new(0, 5, 0)
-
     local result = workspace:Raycast(
         origin,
         Vector3.new(0, -CONFIG.GROUND_RAY_LENGTH, 0),
@@ -644,6 +647,10 @@ local function clearMovementConstraint()
     currentVelocity = Vector3.zero
 end
 
+local function stopMovementConstraint()
+    clearMovementConstraint()
+end
+
 --// CREATE MOVEMENT CONTROLLER
 local function createMovementConstraint(root)
     clearMovementConstraint()
@@ -664,10 +671,6 @@ local function createMovementConstraint(root)
     moveVelocity.Parent = root
 
     currentVelocity = Vector3.zero
-end
-
-local function stopMovementConstraint()
-    clearMovementConstraint()
 end
 
 local function setFollowEnabled(enabled)
@@ -753,11 +756,10 @@ local function setNoclip(enabled)
 
     noclipButton.Text = enabled and "◇  NOCLIP: ON" or "◇  NOCLIP: OFF"
     noclipButton.TextColor3 = enabled and GREEN or BLUE
-end
 
-noclipButton.Activated:Connect(function()
-    setNoclip(not noclipEnabled)
-end)
+    statusText.Text = enabled and "NOCLIP ENABLED" or "NOCLIP DISABLED"
+    statusText.TextColor3 = enabled and GREEN or CYAN
+end
 
 local function applyNoclip()
     local character = LocalPlayer.Character
@@ -787,9 +789,14 @@ local function applyNoclip()
     end
 end
 
-LocalPlayer.CharacterAdded:Connect(function()
-    stopMovementConstraint()
+noclipButton.Activated:Connect(function()
+    setNoclip(not noclipEnabled)
+    applyNoclip()
+end)
 
+--// CHARACTER RESPAWN
+table.insert(characterConnections, LocalPlayer.CharacterAdded:Connect(function(character)
+    stopMovementConstraint()
     followEnabled = false
 
     followButton.Text = "▶  START MOVE"
@@ -798,7 +805,36 @@ LocalPlayer.CharacterAdded:Connect(function()
     floatingFollow.TextColor3 = GREEN
 
     table.clear(originalCollision)
-end)
+
+    -- Noclip remains enabled after respawning.
+    if noclipEnabled then
+        task.defer(function()
+            if character == LocalPlayer.Character and not destroyed then
+                applyNoclip()
+            end
+        end)
+    end
+end))
+
+--// PLAYER REMOVAL
+table.insert(globalConnections, Players.PlayerRemoving:Connect(function(targetPlayer)
+    if selectedPlayer == targetPlayer then
+        selectedPlayer = nil
+        followEnabled = false
+        stopMovementConstraint()
+
+        followButton.Text = "▶  START MOVE"
+        floatingFollow.Text = "▶ START MOVE"
+        followButton.TextColor3 = GREEN
+        floatingFollow.TextColor3 = GREEN
+
+        updateSelectedDisplay()
+    end
+
+    refreshRoster()
+end))
+
+refreshRoster()
 
 --// SMOOTH FOLLOW + CAMERA UPDATE
 RunService:BindToRenderStep(
@@ -880,7 +916,6 @@ RunService:BindToRenderStep(
         local desiredVelocity
 
         if airborne then
-            -- Independent 3D pursuit, including vertical movement.
             local horizontalDifference = Vector3.new(
                 difference.X,
                 0,
@@ -912,8 +947,6 @@ RunService:BindToRenderStep(
                 horizontalVelocity.Z
             )
         else
-            -- Distance-based ground speed: fast when far away,
-            -- controlled when approaching the destination.
             local direction = difference.Unit
             local brakingSpeed = math.sqrt(
                 2 * CONFIG.FOLLOW_BRAKING * distance
@@ -927,8 +960,6 @@ RunService:BindToRenderStep(
             desiredVelocity = direction * targetSpeed
         end
 
-        -- Accelerate rapidly toward the desired velocity while
-        -- smoothing changes to avoid abrupt velocity snapping.
         local response = airborne
             and CONFIG.AIR_HORIZONTAL_RESPONSE
             or CONFIG.FOLLOW_RESPONSE
@@ -939,9 +970,8 @@ RunService:BindToRenderStep(
             alpha
         )
 
-        local maxChange = (
+        local maxChange =
             CONFIG.FOLLOW_ACCELERATION * math.max(deltaTime, 0)
-        )
 
         local velocityChange = smoothedVelocity - currentVelocity
 
@@ -971,15 +1001,15 @@ minimizeButton.Activated:Connect(toggleMinimize)
 closeButton.Activated:Connect(toggleMinimize)
 openGuiButton.Activated:Connect(toggleMinimize)
 
-UserInputService.InputBegan:Connect(function(input, processed)
-    if processed then
+table.insert(globalConnections, UserInputService.InputBegan:Connect(function(input, processed)
+    if processed or destroyed then
         return
     end
 
     if input.KeyCode == Enum.KeyCode.N then
         toggleMinimize()
     end
-end)
+end))
 
 --// ANIMATED NEON BORDER
 task.spawn(function()
@@ -1026,11 +1056,23 @@ destroyButton.Activated:Connect(function()
         end
     end
 
+    table.clear(originalCollision)
+
     for _, connection in ipairs(characterConnections) do
         connection:Disconnect()
     end
 
+    for _, connection in ipairs(globalConnections) do
+        connection:Disconnect()
+    end
+
+    clickSound:Destroy()
     gui:Destroy()
 end)
+
+--// INITIALIZE NOCLIP
+-- The first render update will also maintain noclip for new character parts.
+setNoclip(true)
+applyNoclip()
 
 print("[NEON CYBER CONTROL CENTER] Initialized.")
