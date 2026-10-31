@@ -41,6 +41,7 @@ end
 --// STATE
 local selectedPlayer = nil
 local followEnabled = false
+local nearestMode = false
 local camLockEnabled = false
 local noclipEnabled = true
 local minimized = true
@@ -93,6 +94,10 @@ local GREEN = Color3.fromRGB(42, 255, 160)
 local RED = Color3.fromRGB(255, 65, 94)
 local WHITE = Color3.fromRGB(220, 242, 255)
 local MUTED = Color3.fromRGB(115, 150, 176)
+
+--// NEAREST COLOR
+local GOLD = Color3.fromRGB(255, 190, 40)
+local GOLD_DARK = Color3.fromRGB(65, 48, 15)
 
 local function make(className, props, parent)
     local obj = Instance.new(className)
@@ -167,7 +172,6 @@ local function button(parent, text, size, position, color)
     round(b, 7)
     stroke(b, color or CYAN, 1, 0.35)
 
-    -- Every button gets a click sound, including roster buttons.
     b.Activated:Connect(playClickSound)
 
     b.MouseEnter:Connect(function()
@@ -414,7 +418,6 @@ local camButton = button(main, "◎  CAM LOCK: OFF",
     UDim2.new(0.5, -15, 0, 34),
     UDim2.new(0.5, 5, 0, 351), CYAN)
 
--- Noclip starts ON and green.
 local noclipButton = button(main, "◇  NOCLIP: ON",
     UDim2.new(0.5, -15, 0, 31),
     UDim2.fromOffset(10, 392), GREEN)
@@ -490,6 +493,37 @@ speedInput.FocusLost:Connect(function(enterPressed)
     end
 end)
 
+--// NEAREST PLAYER FINDER
+local function findNearestPlayer()
+    local localRoot = getRoot(LocalPlayer)
+
+    if not localRoot then
+        return nil
+    end
+
+    local nearestPlayer = nil
+    local shortestDistance = math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local root = getRoot(player)
+            local humanoid = getHumanoid(player)
+
+            if root and humanoid and humanoid.Health > 0 then
+                local distance =
+                    (root.Position - localRoot.Position).Magnitude
+
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    nearestPlayer = player
+                end
+            end
+        end
+    end
+
+    return nearestPlayer
+end
+
 --// SELECTED PLAYER VISUAL
 local function updateSelectedDisplay()
     if selectedPlayer and selectedPlayer.Parent == Players then
@@ -510,6 +544,55 @@ local function refreshRoster()
     end
 
     rosterButtons = {}
+
+    --// NEAREST BUTTON - ALWAYS AT THE TOP
+    local nearestButton = button(
+        roster,
+        "  ★ NEAREST",
+        UDim2.new(1, -6, 0, 27),
+        UDim2.new(),
+        GOLD
+    )
+
+    nearestButton.LayoutOrder = 0
+    nearestButton.TextXAlignment = Enum.TextXAlignment.Left
+    nearestButton.BackgroundColor3 = GOLD_DARK
+
+    local nearestOutline = nearestButton:FindFirstChildOfClass("UIStroke")
+    if nearestOutline then
+        nearestOutline.Color = GOLD
+        nearestOutline.Transparency = 0
+    end
+
+    nearestButton.MouseEnter:Connect(function()
+        if nearestButton.Parent then
+            nearestButton.BackgroundColor3 = Color3.fromRGB(100, 72, 15)
+        end
+    end)
+
+    nearestButton.MouseLeave:Connect(function()
+        if nearestButton.Parent then
+            nearestButton.BackgroundColor3 = GOLD_DARK
+        end
+    end)
+
+    nearestButton.Activated:Connect(function()
+        nearestMode = true
+        selectedPlayer = findNearestPlayer()
+
+        updateSelectedDisplay()
+        refreshRoster()
+
+        if selectedPlayer then
+            statusText.Text = followEnabled
+                and "NEAREST FOLLOW ACTIVE"
+                or "NEAREST TARGET SELECTED"
+            statusText.TextColor3 = GOLD
+        else
+            statusText.Text = "NO VALID PLAYERS"
+            statusText.TextColor3 = RED
+        end
+    end)
 
     local playerList = Players:GetPlayers()
 
@@ -539,7 +622,9 @@ local function refreshRoster()
             rosterButtons[targetPlayer] = entry
 
             entry.Activated:Connect(function()
+                nearestMode = false
                 selectedPlayer = targetPlayer
+
                 updateSelectedDisplay()
                 refreshRoster()
             end)
@@ -682,7 +767,9 @@ local function setFollowEnabled(enabled)
         followButton.TextColor3 = RED
         floatingFollow.TextColor3 = RED
 
-        statusText.Text = "FOLLOW ACTIVE"
+        statusText.Text = nearestMode
+            and "NEAREST FOLLOW ACTIVE"
+            or "FOLLOW ACTIVE"
         statusText.TextColor3 = GREEN
     else
         stopMovementConstraint()
@@ -703,7 +790,14 @@ local function toggleFollow()
         return
     end
 
-    if not selectedPlayer or not getRoot(selectedPlayer) then
+    if nearestMode then
+        selectedPlayer = findNearestPlayer()
+    end
+
+    if not selectedPlayer or not getRoot(selectedPlayer)
+        or not getHumanoid(selectedPlayer)
+        or getHumanoid(selectedPlayer).Health <= 0 then
+
         statusText.Text = "SELECT A VALID PLAYER FIRST"
         statusText.TextColor3 = RED
         return
@@ -806,7 +900,6 @@ table.insert(characterConnections, LocalPlayer.CharacterAdded:Connect(function(c
 
     table.clear(originalCollision)
 
-    -- Noclip remains enabled after respawning.
     if noclipEnabled then
         task.defer(function()
             if character == LocalPlayer.Character and not destroyed then
@@ -819,14 +912,24 @@ end))
 --// PLAYER REMOVAL
 table.insert(globalConnections, Players.PlayerRemoving:Connect(function(targetPlayer)
     if selectedPlayer == targetPlayer then
-        selectedPlayer = nil
-        followEnabled = false
-        stopMovementConstraint()
+        if nearestMode and followEnabled then
+            selectedPlayer = findNearestPlayer()
 
-        followButton.Text = "▶  START MOVE"
-        floatingFollow.Text = "▶ START MOVE"
-        followButton.TextColor3 = GREEN
-        floatingFollow.TextColor3 = GREEN
+            updateSelectedDisplay()
+            refreshRoster()
+
+            if selectedPlayer then
+                statusText.Text = "SWITCHED TO NEXT NEAREST"
+                statusText.TextColor3 = GREEN
+                return
+            end
+        end
+
+        selectedPlayer = nil
+
+        if followEnabled then
+            setFollowEnabled(false)
+        end
 
         updateSelectedDisplay()
     end
@@ -852,6 +955,40 @@ RunService:BindToRenderStep(
         local localRoot = getRoot(LocalPlayer)
         local localCharacter = getCharacter(LocalPlayer)
         local localHumanoid = getHumanoid(LocalPlayer)
+
+        --// AUTOMATIC NEAREST TARGET SWITCHING
+        if followEnabled and nearestMode then
+            if not targetRoot
+                or not targetHumanoid
+                or targetHumanoid.Health <= 0
+                or not selectedPlayer
+                or selectedPlayer.Parent ~= Players then
+
+                local nextTarget = findNearestPlayer()
+
+                if nextTarget then
+                    selectedPlayer = nextTarget
+
+                    targetRoot = getRoot(selectedPlayer)
+                    targetHumanoid = getHumanoid(selectedPlayer)
+
+                    updateSelectedDisplay()
+                    refreshRoster()
+
+                    statusText.Text = "SWITCHED TO NEXT NEAREST"
+                    statusText.TextColor3 = GREEN
+                else
+                    currentVelocity = Vector3.zero
+                    if moveVelocity then
+                        moveVelocity.VectorVelocity = Vector3.zero
+                    end
+
+                    statusText.Text = "WAITING FOR PLAYERS"
+                    statusText.TextColor3 = RED
+                    return
+                end
+            end
+        end
 
         if camLockEnabled and targetRoot then
             local camera = getCamera()
@@ -1071,7 +1208,6 @@ destroyButton.Activated:Connect(function()
 end)
 
 --// INITIALIZE NOCLIP
--- The first render update will also maintain noclip for new character parts.
 setNoclip(true)
 applyNoclip()
 
