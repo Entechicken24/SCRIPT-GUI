@@ -1,4 +1,4 @@
---// NEON CYBER CONTROL CENTER - ELITE EDITION
+--// NEON CYBER CONTROL CENTER - ELITE EDITION + NEAREST
 --// Full replacement LocalScript
 --// Place in StarterPlayer > StarterPlayerScripts
 
@@ -24,6 +24,7 @@ end
 --// STATE
 local selectedPlayer = nil
 local targetHighlight = nil
+local nearestMode = false
 local camLockEnabled = false
 local noclipEnabled = false
 local minimized = false
@@ -75,6 +76,10 @@ local GREEN = Color3.fromRGB(0, 255, 140)
 local RED = Color3.fromRGB(255, 45, 85)
 local WHITE = Color3.fromRGB(235, 245, 255)
 local MUTED = Color3.fromRGB(90, 125, 155)
+
+--// NEAREST COLORS (GOLD)
+local GOLD = Color3.fromRGB(255, 190, 40)
+local GOLD_DARK = Color3.fromRGB(45, 33, 10)
 
 local function make(className, props, parent)
     local obj = Instance.new(className)
@@ -256,7 +261,6 @@ make("Frame", {
     BorderSizePixel = 0,
 }, header)
 
--- Akzentlinie unter dem Header
 local headerGlowLine = make("Frame", {
     Size = UDim2.new(1, -20, 0, 1),
     Position = UDim2.new(0, 10, 1, 0),
@@ -269,7 +273,7 @@ label(header, "⚡ N E O N  //  E X E C U T E",
     UDim2.new(1, -92, 1, 0),
     UDim2.fromOffset(14, 0), 13, CYAN)
 
-label(header, "SYS.CORE // v3.5",
+label(header, "SYS.CORE // v3.6",
     UDim2.new(1, -20, 0, 15),
     UDim2.fromOffset(15, 27), 9, MUTED)
 
@@ -375,7 +379,7 @@ local noclipButton = button(main, "◇  NOCLIP: OFF",
 
 local destroyButton = button(main, "TERMINATE GUI",
     UDim2.new(0.5, -14, 0, 31),
-    UDim2.new(0.5, 2, 0, 353), RED)
+    UDim2.fromOffset(0.5, 2, 0, 353), RED)
 
 label(main, "HOTKEY: [ N ] TO TOGGLE PANEL",
     UDim2.new(1, -24, 0, 17),
@@ -407,6 +411,32 @@ local openGuiButton = button(floating, "HIDE GUI",
     UDim2.new(1, -12, 0, 26),
     UDim2.fromOffset(6, 52), CYAN)
 
+--// FIND NEAREST PLAYER FUNCTION
+local function findNearestPlayer()
+    local localRoot = getRoot(LocalPlayer)
+    if not localRoot then return nil end
+
+    local nearestPlayer = nil
+    local shortestDistance = math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local root = getRoot(player)
+            local humanoid = getHumanoid(player)
+
+            if root and humanoid and humanoid.Health > 0 then
+                local distance = (root.Position - localRoot.Position).Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    nearestPlayer = player
+                end
+            end
+        end
+    end
+
+    return nearestPlayer
+end
+
 --// HIGHLIGHT MANAGEMENT
 local function clearHighlight()
     if targetHighlight then
@@ -431,9 +461,9 @@ local function updateHighlight()
 
     targetHighlight = Instance.new("Highlight")
     targetHighlight.Name = "NeonTargetHighlight"
-    targetHighlight.FillColor = GREEN
+    targetHighlight.FillColor = nearestMode and GOLD or GREEN
     targetHighlight.FillTransparency = 0.65
-    targetHighlight.OutlineColor = GREEN
+    targetHighlight.OutlineColor = nearestMode and GOLD or GREEN
     targetHighlight.OutlineTransparency = 0
     targetHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     targetHighlight.Adornee = targetChar
@@ -443,10 +473,12 @@ end
 --// SELECTED PLAYER VISUAL
 local function updateSelectedDisplay()
     if selectedPlayer and selectedPlayer.Parent == Players then
-        selectedDisplay.Text = "  > " .. selectedPlayer.DisplayName .. " (@" .. selectedPlayer.Name .. ")"
-        selectedDisplay.TextColor3 = GREEN
+        local prefix = nearestMode and "  > [NEAREST] " or "  > "
+        selectedDisplay.Text = prefix .. selectedPlayer.DisplayName .. " (@" .. selectedPlayer.Name .. ")"
+        selectedDisplay.TextColor3 = nearestMode and GOLD or GREEN
     else
         selectedPlayer = nil
+        nearestMode = false
         selectedDisplay.Text = "  NO TARGET LOCKED"
         selectedDisplay.TextColor3 = MUTED
     end
@@ -463,6 +495,52 @@ local function refreshRoster()
 
     rosterButtons = {}
 
+    --// ★ NEAREST BUTTON (IMMER GANZ OBEN)
+    local nearestButton = button(
+        roster,
+        "  ★ NEAREST TARGET",
+        UDim2.new(1, -6, 0, 27),
+        UDim2.new(),
+        GOLD
+    )
+
+    nearestButton.LayoutOrder = 0
+    nearestButton.TextXAlignment = Enum.TextXAlignment.Left
+    nearestButton.BackgroundColor3 = GOLD_DARK
+
+    local nearestOutline = nearestButton:FindFirstChildOfClass("UIStroke")
+    if nearestOutline then
+        nearestOutline.Color = GOLD
+        nearestOutline.Transparency = 0
+    end
+
+    nearestButton.MouseEnter:Connect(function()
+        if nearestButton.Parent then
+            nearestButton.BackgroundColor3 = Color3.fromRGB(80, 58, 12)
+        end
+    end)
+
+    nearestButton.MouseLeave:Connect(function()
+        if nearestButton.Parent then
+            nearestButton.BackgroundColor3 = GOLD_DARK
+        end
+    end)
+
+    nearestButton.Activated:Connect(function()
+        nearestMode = true
+        selectedPlayer = findNearestPlayer()
+        updateSelectedDisplay()
+        refreshRoster()
+
+        if selectedPlayer then
+            statusText.Text = "TARGET LOCKED: NEAREST"
+            statusText.TextColor3 = GOLD
+        else
+            statusText.Text = "NO VALID PLAYERS FOUND"
+            statusText.TextColor3 = RED
+        end
+    end)
+
     local playerList = Players:GetPlayers()
 
     table.sort(playerList, function(a, b)
@@ -478,7 +556,7 @@ local function refreshRoster()
 
     for _, targetPlayer in ipairs(playerList) do
         if targetPlayer ~= LocalPlayer then
-            local isSelected = (targetPlayer == selectedPlayer)
+            local isSelected = (targetPlayer == selectedPlayer and not nearestMode)
 
             local entry = button(
                 roster,
@@ -516,6 +594,7 @@ local function refreshRoster()
             }, entry)
 
             entry.Activated:Connect(function()
+                nearestMode = false
                 selectedPlayer = targetPlayer
                 updateSelectedDisplay()
                 refreshRoster()
@@ -617,7 +696,11 @@ end))
 --// PLAYER REMOVAL
 table.insert(globalConnections, Players.PlayerRemoving:Connect(function(targetPlayer)
     if selectedPlayer == targetPlayer then
-        selectedPlayer = nil
+        if nearestMode then
+            selectedPlayer = findNearestPlayer()
+        else
+            selectedPlayer = nil
+        end
         updateSelectedDisplay()
     end
 
@@ -636,6 +719,16 @@ RunService:BindToRenderStep(
         end
 
         applyNoclip()
+
+        -- Wenn Nearest-Modus aktiv ist, dynamisch den echten nächsten Spieler tracken
+        if nearestMode and not camLockEnabled == false then
+            local nearest = findNearestPlayer()
+            if nearest and nearest ~= selectedPlayer then
+                selectedPlayer = nearest
+                updateSelectedDisplay()
+            end
+        end
+
         updateHighlight()
 
         local targetHead = getHead(selectedPlayer)
@@ -742,4 +835,5 @@ end)
 setNoclip(false)
 applyNoclip()
 
-print("[NEON CYBER CONTROL CENTER] Elite Edition Initialized.")
+print("[NEON CYBER CONTROL CENTER] Elite Edition + Nearest Initialized.")
+
