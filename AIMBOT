@@ -1,4 +1,4 @@
---// NEON CYBER CONTROL CENTER - ELITE EDITION + NEAREST
+--// NEON CYBER CONTROL CENTER - ELITE EDITION + GRAB DETECTION
 --// Full replacement LocalScript
 --// Place in StarterPlayer > StarterPlayerScripts
 
@@ -9,6 +9,7 @@ local SoundService = game:GetService("SoundService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Mouse = LocalPlayer:GetMouse()
 
 local CONFIG = {
     CLICK_SOUND_ID = "rbxassetid://6895079853",
@@ -23,10 +24,13 @@ end
 
 --// STATE
 local selectedPlayer = nil
+local selectedPart = nil
+local partSelectArmed = false
 local targetHighlight = nil
 local nearestMode = false
 local camLockEnabled = false
 local noclipEnabled = false
+local searchQuery = ""
 local minimized = false
 local destroyed = false
 
@@ -44,9 +48,19 @@ local function getRoot(player)
     return character and character:FindFirstChild("HumanoidRootPart")
 end
 
-local function getHead(player)
+local function getTargetPart(player)
+    -- Wenn ein Part per Klick ausgewählt wurde und noch existiert
+    if selectedPart and selectedPart.Parent then
+        return selectedPart
+    end
+
+    -- Standard: Auf den Kopf des ausgewählten Spielers zielen
     local character = getCharacter(player)
-    return character and character:FindFirstChild("Head")
+    if character then
+        return character:FindFirstChild("Head")
+    end
+
+    return nil
 end
 
 local function getHumanoid(player)
@@ -225,8 +239,8 @@ end
 --// MAIN PANEL
 local main = make("Frame", {
     Name = "MainPanel",
-    Size = UDim2.fromOffset(350, 425),
-    Position = UDim2.new(0, 24, 0.5, -212),
+    Size = UDim2.fromOffset(350, 455),
+    Position = UDim2.new(0, 24, 0, 10),
     BackgroundColor3 = BG,
     BackgroundTransparency = 0.04,
     BorderSizePixel = 0,
@@ -273,7 +287,7 @@ label(header, "⚡ N E O N  //  E X E C U T E",
     UDim2.new(1, -92, 1, 0),
     UDim2.fromOffset(14, 0), 13, CYAN)
 
-label(header, "SYS.CORE // v3.6",
+label(header, "SYS.CORE // v4.4",
     UDim2.new(1, -20, 0, 15),
     UDim2.fromOffset(15, 27), 9, MUTED)
 
@@ -311,7 +325,7 @@ local statusText = label(statusBar, "SYSTEM SECURE // ONLINE",
     UDim2.new(1, -25, 1, 0),
     UDim2.fromOffset(25, 0), 10, GREEN)
 
---// SELECTED PLAYER
+--// SELECTED PLAYER / PART
 label(main, "01  //  CURRENT TARGET",
     UDim2.new(1, -24, 0, 18),
     UDim2.fromOffset(12, 88), 10, CYAN)
@@ -332,7 +346,7 @@ local selectedDisplay = make("TextLabel", {
 round(selectedDisplay, 6)
 stroke(selectedDisplay, BLUE, 1, 0.5)
 
---// PLAYER ROSTER
+--// PLAYER ROSTER HEADER & REFRESH
 label(main, "ACTIVE ENTITIES",
     UDim2.new(0.6, 0, 0, 17),
     UDim2.fromOffset(12, 148), 10, MUTED)
@@ -341,10 +355,34 @@ local refreshButton = button(main, "↻ SYNC",
     UDim2.fromOffset(72, 22),
     UDim2.new(1, -84, 0, 146), CYAN)
 
+--// SEARCH BAR
+local searchInput = make("TextBox", {
+    Size = UDim2.new(1, -24, 0, 26),
+    Position = UDim2.fromOffset(12, 174),
+    BackgroundColor3 = PANEL,
+    BorderSizePixel = 0,
+    Text = "",
+    PlaceholderText = "🔍 Search player...",
+    TextColor3 = WHITE,
+    PlaceholderColor3 = MUTED,
+    TextSize = 11,
+    Font = Enum.Font.Code,
+    ClearTextOnFocus = false,
+}, main)
+
+round(searchInput, 6)
+stroke(searchInput, CYAN, 1, 0.6)
+
+--// SELECT PART BUTTON (KLICK-MODUS)
+local selectPartButton = button(main, "🎯 SELECT PART (CLICK)",
+    UDim2.new(1, -24, 0, 26),
+    UDim2.fromOffset(12, 204), CYAN)
+
+--// PLAYER ROSTER SCROLLING FRAME
 local roster = make("ScrollingFrame", {
     Name = "PlayerRoster",
-    Size = UDim2.new(1, -24, 0, 130),
-    Position = UDim2.fromOffset(12, 172),
+    Size = UDim2.new(1, -24, 0, 85),
+    Position = UDim2.fromOffset(12, 234),
     BackgroundColor3 = PANEL,
     BorderSizePixel = 0,
     ScrollBarThickness = 3,
@@ -371,25 +409,25 @@ make("UIPadding", {
 --// ACTION BUTTONS
 local camButton = button(main, "◎  AIMBOT (CAM LOCK): OFF",
     UDim2.new(1, -24, 0, 34),
-    UDim2.fromOffset(12, 311), CYAN)
+    UDim2.fromOffset(12, 325), CYAN)
 
 local noclipButton = button(main, "◇  NOCLIP: OFF",
     UDim2.new(0.5, -14, 0, 31),
-    UDim2.fromOffset(12, 353), BLUE)
+    UDim2.fromOffset(12, 365), BLUE)
 
 local destroyButton = button(main, "TERMINATE GUI",
     UDim2.new(0.5, -14, 0, 31),
-    UDim2.fromOffset(0.5, 2, 0, 353), RED)
+    UDim2.new(0.5, 2, 0, 365), RED)
 
 label(main, "HOTKEY: [ N ] TO TOGGLE PANEL",
     UDim2.new(1, -24, 0, 17),
-    UDim2.fromOffset(12, 394), 9, MUTED)
+    UDim2.fromOffset(12, 403), 9, MUTED)
 
 --// FLOATING CONTROLS
 local floating = make("Frame", {
     Name = "FloatingControls",
     Size = UDim2.fromOffset(160, 86),
-    Position = UDim2.new(0, 24, 0.5, 220),
+    Position = UDim2.new(0, 24, 0, 470),
     BackgroundColor3 = BG,
     BackgroundTransparency = 0.08,
     BorderSizePixel = 0,
@@ -410,6 +448,9 @@ local floatingCam = button(floating, "◎ AIMBOT: OFF",
 local openGuiButton = button(floating, "HIDE GUI",
     UDim2.new(1, -12, 0, 26),
     UDim2.fromOffset(6, 52), CYAN)
+
+--// FORWARD DECLARATION
+local refreshRoster
 
 --// FIND NEAREST PLAYER FUNCTION
 local function findNearestPlayer()
@@ -446,14 +487,26 @@ local function clearHighlight()
 end
 
 local function updateHighlight()
-    local targetChar = getCharacter(selectedPlayer)
+    local adornee = nil
+    local highlightColor = GREEN
 
-    if not targetChar or destroyed then
+    if selectedPart and selectedPart.Parent then
+        adornee = selectedPart
+        highlightColor = GREEN
+    else
+        local targetChar = getCharacter(selectedPlayer)
+        if targetChar then
+            adornee = targetChar
+            highlightColor = nearestMode and GOLD or GREEN
+        end
+    end
+
+    if not adornee or destroyed then
         clearHighlight()
         return
     end
 
-    if targetHighlight and targetHighlight.Parent == targetChar then
+    if targetHighlight and targetHighlight.Adornee == adornee then
         return
     end
 
@@ -461,32 +514,56 @@ local function updateHighlight()
 
     targetHighlight = Instance.new("Highlight")
     targetHighlight.Name = "NeonTargetHighlight"
-    targetHighlight.FillColor = nearestMode and GOLD or GREEN
+    targetHighlight.FillColor = highlightColor
     targetHighlight.FillTransparency = 0.65
-    targetHighlight.OutlineColor = nearestMode and GOLD or GREEN
+    targetHighlight.OutlineColor = highlightColor
     targetHighlight.OutlineTransparency = 0
     targetHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    targetHighlight.Adornee = targetChar
-    targetHighlight.Parent = targetChar
+    targetHighlight.Adornee = adornee
+    targetHighlight.Parent = adornee
 end
 
---// SELECTED PLAYER VISUAL
+--// SELECT PART BUTTON VISUAL UPDATE
+local function updateSelectPartButton()
+    local btnStroke = selectPartButton:FindFirstChildOfClass("UIStroke")
+
+    if partSelectArmed then
+        selectPartButton.Text = "🎯 CLICK ANY PART IN WORLD..."
+        selectPartButton.TextColor3 = GOLD
+        if btnStroke then btnStroke.Color = GOLD end
+    elseif selectedPart and selectedPart.Parent then
+        selectPartButton.Text = "🎯 PART: " .. selectedPart.Name
+        selectPartButton.TextColor3 = GREEN
+        if btnStroke then btnStroke.Color = GREEN end
+    else
+        selectPartButton.Text = "🎯 SELECT PART (CLICK)"
+        selectPartButton.TextColor3 = CYAN
+        if btnStroke then btnStroke.Color = CYAN end
+    end
+end
+
+--// SELECTED PLAYER / PART VISUAL
 local function updateSelectedDisplay()
-    if selectedPlayer and selectedPlayer.Parent == Players then
+    if selectedPart and selectedPart.Parent then
+        selectedDisplay.Text = "  > [PART] " .. selectedPart.Name
+        selectedDisplay.TextColor3 = GREEN
+    elseif selectedPlayer and selectedPlayer.Parent == Players then
         local prefix = nearestMode and "  > [NEAREST] " or "  > "
         selectedDisplay.Text = prefix .. selectedPlayer.DisplayName .. " (@" .. selectedPlayer.Name .. ")"
         selectedDisplay.TextColor3 = nearestMode and GOLD or GREEN
     else
         selectedPlayer = nil
+        selectedPart = nil
         nearestMode = false
         selectedDisplay.Text = "  NO TARGET LOCKED"
         selectedDisplay.TextColor3 = MUTED
     end
 
+    updateSelectPartButton()
     updateHighlight()
 end
 
-local function refreshRoster()
+refreshRoster = function()
     for _, child in ipairs(roster:GetChildren()) do
         if child:IsA("TextButton") then
             child:Destroy()
@@ -495,51 +572,54 @@ local function refreshRoster()
 
     rosterButtons = {}
 
-    --// ★ NEAREST BUTTON (IMMER GANZ OBEN)
-    local nearestButton = button(
-        roster,
-        "  ★ NEAREST TARGET",
-        UDim2.new(1, -6, 0, 27),
-        UDim2.new(),
-        GOLD
-    )
+    if searchQuery == "" or ("nearest"):find(searchQuery:lower()) then
+        local nearestButton = button(
+            roster,
+            "  ★ NEAREST TARGET",
+            UDim2.new(1, -6, 0, 27),
+            UDim2.new(),
+            GOLD
+        )
 
-    nearestButton.LayoutOrder = 0
-    nearestButton.TextXAlignment = Enum.TextXAlignment.Left
-    nearestButton.BackgroundColor3 = GOLD_DARK
+        nearestButton.LayoutOrder = 0
+        nearestButton.TextXAlignment = Enum.TextXAlignment.Left
+        nearestButton.BackgroundColor3 = GOLD_DARK
 
-    local nearestOutline = nearestButton:FindFirstChildOfClass("UIStroke")
-    if nearestOutline then
-        nearestOutline.Color = GOLD
-        nearestOutline.Transparency = 0
+        local nearestOutline = nearestButton:FindFirstChildOfClass("UIStroke")
+        if nearestOutline then
+            nearestOutline.Color = GOLD
+            nearestOutline.Transparency = 0
+        end
+
+        nearestButton.MouseEnter:Connect(function()
+            if nearestButton.Parent then
+                nearestButton.BackgroundColor3 = Color3.fromRGB(80, 58, 12)
+            end
+        end)
+
+        nearestButton.MouseLeave:Connect(function()
+            if nearestButton.Parent then
+                nearestButton.BackgroundColor3 = GOLD_DARK
+            end
+        end)
+
+        nearestButton.Activated:Connect(function()
+            selectedPart = nil
+            partSelectArmed = false
+            nearestMode = true
+            selectedPlayer = findNearestPlayer()
+            updateSelectedDisplay()
+            refreshRoster()
+
+            if selectedPlayer then
+                statusText.Text = "TARGET LOCKED: NEAREST"
+                statusText.TextColor3 = GOLD
+            else
+                statusText.Text = "NO VALID PLAYERS FOUND"
+                statusText.TextColor3 = RED
+            end
+        end)
     end
-
-    nearestButton.MouseEnter:Connect(function()
-        if nearestButton.Parent then
-            nearestButton.BackgroundColor3 = Color3.fromRGB(80, 58, 12)
-        end
-    end)
-
-    nearestButton.MouseLeave:Connect(function()
-        if nearestButton.Parent then
-            nearestButton.BackgroundColor3 = GOLD_DARK
-        end
-    end)
-
-    nearestButton.Activated:Connect(function()
-        nearestMode = true
-        selectedPlayer = findNearestPlayer()
-        updateSelectedDisplay()
-        refreshRoster()
-
-        if selectedPlayer then
-            statusText.Text = "TARGET LOCKED: NEAREST"
-            statusText.TextColor3 = GOLD
-        else
-            statusText.Text = "NO VALID PLAYERS FOUND"
-            statusText.TextColor3 = RED
-        end
-    end)
 
     local playerList = Players:GetPlayers()
 
@@ -556,52 +636,58 @@ local function refreshRoster()
 
     for _, targetPlayer in ipairs(playerList) do
         if targetPlayer ~= LocalPlayer then
-            local isSelected = (targetPlayer == selectedPlayer and not nearestMode)
+            local displayName = targetPlayer.DisplayName
+            local userName = targetPlayer.Name
+            local fullTextString = (displayName .. " (@" .. userName .. ")"):lower()
 
-            local entry = button(
-                roster,
-                "",
-                UDim2.new(1, -6, 0, 27),
-                UDim2.new(),
-                isSelected and GREEN or CYAN
-            )
+            if searchQuery == "" or fullTextString:find(searchQuery:lower()) then
+                local isSelected = (targetPlayer == selectedPlayer and not nearestMode and not selectedPart)
 
-            entry.LayoutOrder = #rosterButtons + 1
-            rosterButtons[targetPlayer] = entry
+                local entry = button(
+                    roster,
+                    "",
+                    UDim2.new(1, -6, 0, 27),
+                    UDim2.new(),
+                    isSelected and GREEN or CYAN
+                )
 
-            --// SPIELER ICON
-            local avatar = make("ImageLabel", {
-                Size = UDim2.fromOffset(21, 21),
-                Position = UDim2.fromOffset(4, 3),
-                BackgroundColor3 = BG,
-                BorderSizePixel = 0,
-                Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(targetPlayer.UserId) .. "&w=48&h=48",
-            }, entry)
-            round(avatar, 11)
+                entry.LayoutOrder = #rosterButtons + 1
+                rosterButtons[targetPlayer] = entry
 
-            --// DISPLAYNAME (@USERNAME)
-            local nameLabel = make("TextLabel", {
-                BackgroundTransparency = 1,
-                Size = UDim2.new(1, -32, 1, 0),
-                Position = UDim2.fromOffset(30, 0),
-                Font = Enum.Font.Code,
-                TextSize = 11,
-                TextColor3 = isSelected and GREEN or WHITE,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                TextYAlignment = Enum.TextYAlignment.Center,
-                TextTruncate = Enum.TextTruncate.AtEnd,
-                Text = targetPlayer.DisplayName .. " (@" .. targetPlayer.Name .. ")",
-            }, entry)
+                local avatar = make("ImageLabel", {
+                    Size = UDim2.fromOffset(21, 21),
+                    Position = UDim2.fromOffset(4, 3),
+                    BackgroundColor3 = BG,
+                    BorderSizePixel = 0,
+                    Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(targetPlayer.UserId) .. "&w=48&h=48",
+                }, entry)
+                round(avatar, 11)
 
-            entry.Activated:Connect(function()
-                nearestMode = false
-                selectedPlayer = targetPlayer
-                updateSelectedDisplay()
-                refreshRoster()
-            end)
+                local nameLabel = make("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, -32, 1, 0),
+                    Position = UDim2.fromOffset(30, 0),
+                    Font = Enum.Font.Code,
+                    TextSize = 11,
+                    TextColor3 = isSelected and GREEN or WHITE,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextYAlignment = Enum.TextYAlignment.Center,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                    Text = displayName .. " (@" .. userName .. ")",
+                }, entry)
 
-            if isSelected then
-                entry.BackgroundColor3 = Color3.fromRGB(15, 55, 50)
+                entry.Activated:Connect(function()
+                    selectedPart = nil
+                    partSelectArmed = false
+                    nearestMode = false
+                    selectedPlayer = targetPlayer
+                    updateSelectedDisplay()
+                    refreshRoster()
+                end)
+
+                if isSelected then
+                    entry.BackgroundColor3 = Color3.fromRGB(15, 55, 50)
+                end
             end
         end
     end
@@ -612,7 +698,46 @@ end
 refreshButton.Activated:Connect(refreshRoster)
 table.insert(globalConnections, Players.PlayerAdded:Connect(refreshRoster))
 
---// CAMERA LOCK (AIMBOT TO HEAD)
+searchInput:GetPropertyChangedSignal("Text"):Connect(function()
+    searchQuery = searchInput.Text
+    refreshRoster()
+end)
+
+selectPartButton.Activated:Connect(function()
+    partSelectArmed = not partSelectArmed
+    updateSelectPartButton()
+
+    if partSelectArmed then
+        statusText.Text = "WAITING FOR PART CLICK..."
+        statusText.TextColor3 = GOLD
+    else
+        statusText.Text = "SYSTEM SECURE // ONLINE"
+        statusText.TextColor3 = GREEN
+    end
+end)
+
+table.insert(globalConnections, UserInputService.InputBegan:Connect(function(input, processed)
+    if processed or destroyed then
+        return
+    end
+
+    if partSelectArmed and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+        local clickedTarget = Mouse.Target
+        if clickedTarget and clickedTarget:IsA("BasePart") then
+            selectedPart = clickedTarget
+            selectedPlayer = nil
+            nearestMode = false
+            partSelectArmed = false
+
+            updateSelectedDisplay()
+            refreshRoster()
+
+            statusText.Text = "PART LOCKED: " .. clickedTarget.Name
+            statusText.TextColor3 = GREEN
+        end
+    end
+end))
+
 local function setCamLock(enabled)
     camLockEnabled = enabled
 
@@ -636,7 +761,6 @@ end
 camButton.Activated:Connect(toggleCamLock)
 floatingCam.Activated:Connect(toggleCamLock)
 
---// NOCLIP
 local function setNoclip(enabled)
     noclipEnabled = enabled
 
@@ -680,7 +804,6 @@ noclipButton.Activated:Connect(function()
     applyNoclip()
 end)
 
---// CHARACTER RESPAWN
 table.insert(characterConnections, LocalPlayer.CharacterAdded:Connect(function(character)
     table.clear(originalCollision)
 
@@ -693,7 +816,6 @@ table.insert(characterConnections, LocalPlayer.CharacterAdded:Connect(function(c
     end
 end))
 
---// PLAYER REMOVAL
 table.insert(globalConnections, Players.PlayerRemoving:Connect(function(targetPlayer)
     if selectedPlayer == targetPlayer then
         if nearestMode then
@@ -709,7 +831,6 @@ end))
 
 refreshRoster()
 
---// Aimbot / Head Camera Lock & Highlight Update Loop
 RunService:BindToRenderStep(
     "NeonCyberControlCenterUpdate",
     Enum.RenderPriority.Camera.Value + 1,
@@ -720,8 +841,14 @@ RunService:BindToRenderStep(
 
         applyNoclip()
 
-        -- Wenn Nearest-Modus aktiv ist, dynamisch den echten nächsten Spieler tracken
-        if nearestMode and not camLockEnabled == false then
+        --// AUTO-OFF WENN ETWAS GEGRIFFEN WURDE (Fling Things and People Check)
+        if camLockEnabled and workspace:FindFirstChild("GrabParts") then
+            setCamLock(false)
+            statusText.Text = "GRABBED // AIMBOT OFF"
+            statusText.TextColor3 = GOLD
+        end
+
+        if nearestMode and not selectedPart then
             local nearest = findNearestPlayer()
             if nearest and nearest ~= selectedPlayer then
                 selectedPlayer = nearest
@@ -731,23 +858,21 @@ RunService:BindToRenderStep(
 
         updateHighlight()
 
-        local targetHead = getHead(selectedPlayer)
+        local targetPart = getTargetPart(selectedPlayer)
 
-        --// CAM LOCK TO TARGET HEAD
-        if camLockEnabled and targetHead then
+        if camLockEnabled and targetPart then
             local camera = getCamera()
 
             if camera then
                 camera.CFrame = CFrame.lookAt(
                     camera.CFrame.Position,
-                    targetHead.Position
+                    targetPart.Position
                 )
             end
         end
     end
 )
 
---// MINIMIZE / REOPEN
 local function toggleMinimize()
     minimized = not minimized
     main.Visible = not minimized
@@ -769,7 +894,6 @@ table.insert(globalConnections, UserInputService.InputBegan:Connect(function(inp
     end
 end))
 
---// ANIMATED NEON BORDER
 task.spawn(function()
     local hue = 0
 
@@ -797,7 +921,6 @@ task.spawn(function()
     end
 end)
 
---// DESTROY GUI
 destroyButton.Activated:Connect(function()
     destroyed = true
     camLockEnabled = false
@@ -831,8 +954,7 @@ destroyButton.Activated:Connect(function()
     gui:Destroy()
 end)
 
---// INITIALIZE NOCLIP (OFF BY DEFAULT)
 setNoclip(false)
 applyNoclip()
 
-print("[NEON CYBER CONTROL CENTER] Elite Edition + Nearest Initialized.")
+print("[NEON CYBER CONTROL CENTER] Elite Edition + Grab Auto-Off Initialized.")
