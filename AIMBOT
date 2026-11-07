@@ -1,4 +1,4 @@
---// NEON CYBER CONTROL CENTER - ELITE EDITION + SEARCH & TEAM CHECK
+--// NEON CYBER CONTROL CENTER - ELITE EDITION (NO TEAM CHECK)
 --// Full replacement LocalScript
 --// Place in StarterPlayer > StarterPlayerScripts
 
@@ -27,7 +27,6 @@ local targetHighlight = nil
 local nearestMode = false
 local camLockEnabled = false
 local noclipEnabled = false
-local teamCheckEnabled = false -- Team Check standardmäßig aus
 local searchQuery = ""
 local minimized = false
 local destroyed = false
@@ -224,11 +223,11 @@ local function makeDraggable(object, dragHandle)
     table.insert(globalConnections, connection)
 end
 
---// MAIN PANEL (Etwas höher gemacht für die Suchleiste)
+--// MAIN PANEL (Ganz oben am Bildschirmrand)
 local main = make("Frame", {
     Name = "MainPanel",
-    Size = UDim2.fromOffset(350, 460),
-    Position = UDim2.new(0, 24, 0.5, -230),
+    Size = UDim2.fromOffset(350, 420),
+    Position = UDim2.new(0, 24, 0, 10),
     BackgroundColor3 = BG,
     BackgroundTransparency = 0.04,
     BorderSizePixel = 0,
@@ -275,7 +274,7 @@ label(header, "⚡ N E O N  //  E X E C U T E",
     UDim2.new(1, -92, 1, 0),
     UDim2.fromOffset(14, 0), 13, CYAN)
 
-label(header, "SYS.CORE // v3.7",
+label(header, "SYS.CORE // v3.9",
     UDim2.new(1, -20, 0, 15),
     UDim2.fromOffset(15, 27), 9, MUTED)
 
@@ -389,32 +388,28 @@ make("UIPadding", {
     PaddingRight = UDim.new(0, 5),
 }, roster)
 
---// ACTION BUTTONS (Team Check, Aimbot, Noclip, Destroy)
-local teamCheckButton = button(main, "👥 TEAM CHECK: OFF",
-    UDim2.new(1, -24, 0, 30),
-    UDim2.fromOffset(12, 318), BLUE)
-
+--// ACTION BUTTONS (Ohne Team Check)
 local camButton = button(main, "◎  AIMBOT (CAM LOCK): OFF",
     UDim2.new(1, -24, 0, 34),
-    UDim2.fromOffset(12, 354), CYAN)
+    UDim2.fromOffset(12, 318), CYAN)
 
 local noclipButton = button(main, "◇  NOCLIP: OFF",
     UDim2.new(0.5, -14, 0, 31),
-    UDim2.fromOffset(12, 394), BLUE)
+    UDim2.fromOffset(12, 358), BLUE)
 
 local destroyButton = button(main, "TERMINATE GUI",
     UDim2.new(0.5, -14, 0, 31),
-    UDim2.new(0.5, 2, 0, 394), RED)
+    UDim2.new(0.5, 2, 0, 358), RED)
 
 label(main, "HOTKEY: [ N ] TO TOGGLE PANEL",
     UDim2.new(1, -24, 0, 17),
-    UDim2.fromOffset(12, 432), 9, MUTED)
+    UDim2.fromOffset(12, 396), 9, MUTED)
 
 --// FLOATING CONTROLS
 local floating = make("Frame", {
     Name = "FloatingControls",
     Size = UDim2.fromOffset(160, 86),
-    Position = UDim2.new(0, 24, 0.5, 220),
+    Position = UDim2.new(0, 24, 0, 440),
     BackgroundColor3 = BG,
     BackgroundTransparency = 0.08,
     BorderSizePixel = 0,
@@ -439,14 +434,7 @@ local openGuiButton = button(floating, "HIDE GUI",
 --// FORWARD DECLARATION
 local refreshRoster
 
---// TEAM CHECK LOGIC
-local function isSameTeam(player)
-    if not teamCheckEnabled then return false end
-    if not LocalPlayer.Team or not player.Team then return false end
-    return LocalPlayer.Team == player.Team
-end
-
---// FIND NEAREST PLAYER FUNCTION (MIT TEAM CHECK)
+--// FIND NEAREST PLAYER FUNCTION
 local function findNearestPlayer()
     local localRoot = getRoot(LocalPlayer)
     if not localRoot then return nil end
@@ -456,17 +444,14 @@ local function findNearestPlayer()
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
-            -- Wenn Team Check an ist und sie im selben Team sind, überspringen
-            if not teamCheckEnabled or not isSameTeam(player) then
-                local root = getRoot(player)
-                local humanoid = getHumanoid(player)
+            local root = getRoot(player)
+            local humanoid = getHumanoid(player)
 
-                if root and humanoid and humanoid.Health > 0 then
-                    local distance = (root.Position - localRoot.Position).Magnitude
-                    if distance < shortestDistance then
-                        shortestDistance = distance
-                        nearestPlayer = player
-                    end
+            if root and humanoid and humanoid.Health > 0 then
+                local distance = (root.Position - localRoot.Position).Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    nearestPlayer = player
                 end
             end
         end
@@ -533,7 +518,6 @@ refreshRoster = function()
 
     rosterButtons = {}
 
-    --// ★ NEAREST BUTTON (IMMER GANZ OBEN, SOFERN NICHT WEGGESUCHT)
     if searchQuery == "" or "nearest".find(searchQuery:lower()) then
         local nearestButton = button(
             roster,
@@ -600,7 +584,6 @@ refreshRoster = function()
             local userName = targetPlayer.Name
             local fullTextString = (displayName .. " (@" .. userName .. ")"):lower()
 
-            --// SUCHABFRAGE PRÜFEN
             if searchQuery == "" or fullTextString:find(searchQuery:lower()) then
                 local isSelected = (targetPlayer == selectedPlayer and not nearestMode)
 
@@ -615,7 +598,6 @@ refreshRoster = function()
                 entry.LayoutOrder = #rosterButtons + 1
                 rosterButtons[targetPlayer] = entry
 
-                --// SPIELER ICON
                 local avatar = make("ImageLabel", {
                     Size = UDim2.fromOffset(21, 21),
                     Position = UDim2.fromOffset(4, 3),
@@ -625,7 +607,6 @@ refreshRoster = function()
                 }, entry)
                 round(avatar, 11)
 
-                --// DISPLAYNAME (@USERNAME)
                 local nameLabel = make("TextLabel", {
                     BackgroundTransparency = 1,
                     Size = UDim2.new(1, -32, 1, 0),
@@ -658,41 +639,12 @@ end
 
 refreshButton.Activated:Connect(refreshRoster)
 table.insert(globalConnections, Players.PlayerAdded:Connect(refreshRoster))
-table.insert(globalConnections, Players.PlayerRemoving:Connect(function(player)
-    if player.Team then
-        -- Optional: Bei Teamwechsel aktualisieren
-        refreshRoster()
-    end
-end))
 
---// SUCHFELD EVENT
 searchInput:GetPropertyChangedSignal("Text"):Connect(function()
     searchQuery = searchInput.Text
     refreshRoster()
 end)
 
---// TEAM CHECK BUTTON EVENT
-teamCheckButton.Activated:Connect(function()
-    teamCheckEnabled = not teamCheckEnabled
-
-    if teamCheckEnabled then
-        teamCheckButton.Text = "👥 TEAM CHECK: ON"
-        teamCheckButton.TextColor3 = GREEN
-        stroke(teamCheckButton, GREEN, 1, 0.4)
-    else
-        teamCheckButton.Text = "👥 TEAM CHECK: OFF"
-        teamCheckButton.TextColor3 = BLUE
-        stroke(teamCheckButton, BLUE, 1, 0.4)
-    end
-
-    -- Wenn Nearest aktiv ist und das Ziel jetzt im Team ist, neu suchen
-    if nearestMode and selectedPlayer and isSameTeam(selectedPlayer) then
-        selectedPlayer = findNearestPlayer()
-        updateSelectedDisplay()
-    end
-end)
-
---// CAMERA LOCK (AIMBOT TO HEAD)
 local function setCamLock(enabled)
     camLockEnabled = enabled
 
@@ -716,7 +668,6 @@ end
 camButton.Activated:Connect(toggleCamLock)
 floatingCam.Activated:Connect(toggleCamLock)
 
---// NOCLIP
 local function setNoclip(enabled)
     noclipEnabled = enabled
 
@@ -760,7 +711,6 @@ noclipButton.Activated:Connect(function()
     applyNoclip()
 end)
 
---// CHARACTER RESPAWN
 table.insert(characterConnections, LocalPlayer.CharacterAdded:Connect(function(character)
     table.clear(originalCollision)
 
@@ -773,7 +723,6 @@ table.insert(characterConnections, LocalPlayer.CharacterAdded:Connect(function(c
     end
 end))
 
---// PLAYER REMOVAL
 table.insert(globalConnections, Players.PlayerRemoving:Connect(function(targetPlayer)
     if selectedPlayer == targetPlayer then
         if nearestMode then
@@ -789,7 +738,6 @@ end))
 
 refreshRoster()
 
---// Aimbot / Head Camera Lock & Highlight Update Loop
 RunService:BindToRenderStep(
     "NeonCyberControlCenterUpdate",
     Enum.RenderPriority.Camera.Value + 1,
@@ -800,7 +748,6 @@ RunService:BindToRenderStep(
 
         applyNoclip()
 
-        -- Wenn Nearest-Modus aktiv ist, dynamisch den nächsten Nicht-Teammitglied-Spieler tracken
         if nearestMode then
             local nearest = findNearestPlayer()
             if nearest and nearest ~= selectedPlayer then
@@ -813,7 +760,6 @@ RunService:BindToRenderStep(
 
         local targetHead = getHead(selectedPlayer)
 
-        --// CAM LOCK TO TARGET HEAD
         if camLockEnabled and targetHead then
             local camera = getCamera()
 
@@ -827,7 +773,6 @@ RunService:BindToRenderStep(
     end
 )
 
---// MINIMIZE / REOPEN
 local function toggleMinimize()
     minimized = not minimized
     main.Visible = not minimized
@@ -849,7 +794,6 @@ table.insert(globalConnections, UserInputService.InputBegan:Connect(function(inp
     end
 end))
 
---// ANIMATED NEON BORDER
 task.spawn(function()
     local hue = 0
 
@@ -877,7 +821,6 @@ task.spawn(function()
     end
 end)
 
---// DESTROY GUI
 destroyButton.Activated:Connect(function()
     destroyed = true
     camLockEnabled = false
@@ -911,8 +854,7 @@ destroyButton.Activated:Connect(function()
     gui:Destroy()
 end)
 
---// INITIALIZE NOCLIP (OFF BY DEFAULT)
 setNoclip(false)
 applyNoclip()
 
-print("[NEON CYBER CONTROL CENTER] Elite Edition + Search & TeamCheck Initialized.")
+print("[NEON CYBER CONTROL CENTER] Elite Edition (No TeamCheck) Initialized.")
