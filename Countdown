@@ -1,0 +1,42 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = game:GetService("TextChatService")
+
+local LocalPlayer = Players.LocalPlayer
+local isCounting = false
+
+-- Function to send chat messages (supports both New and Legacy chat)
+local function sendChatMessage(msg)
+    if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+        local generalChannel = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+        if generalChannel then
+            generalChannel:SendAsync(msg)
+        end
+    else
+        local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+        if chatEvents then
+            local sayMessage = chatEvents:FindFirstChild("SayMessageRequest")
+            if sayMessage then
+                sayMessage:FireServer(msg, "All")
+            end
+        end
+    end
+end
+
+-- Listen to your own chat messages
+LocalPlayer.Chatted:Connect(function(message)
+    if string.lower(message) == "count" and not isCounting then
+        isCounting = true
+        
+        task.wait(1)
+        sendChatMessage("3")
+        task.wait(1)
+        sendChatMessage("2")
+        task.wait(1)
+        sendChatMessage("1")
+        task.wait(1)
+        sendChatMessage("go")
+        
+        isCounting = false
+    end
+end)
