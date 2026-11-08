@@ -1,0 +1,163 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = game:GetService("TextChatService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+local selectedPlayer = nil
+local chatConnection = nil
+local isHidden = false
+local currentFilter = ""
+local mimicDelay = 0.25
+
+-- Function to send chat messages
+local function sendChatMessage(msg)
+    if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+        local generalChannel = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+        if generalChannel then
+            generalChannel:SendAsync(msg)
+        end
+    else
+        local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+        if chatEvents then
+            local sayMessage = chatEvents:FindFirstChild("SayMessageRequest")
+            if sayMessage then
+                sayMessage:FireServer(msg, "All")
+            end
+        end
+    end
+end
+
+-- Helper for smooth tweens
+local function tween(obj, props, time)
+    TweenService:Create(obj, TweenInfo.new(time or 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
+end
+
+-- Create UI Root
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "MimicProV2"
+ScreenGui.ResetOnSpawn = false
+
+local success = pcall(function()
+    ScreenGui.Parent = gethui and gethui() or CoreGui
+end)
+if not success then
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- Floating Reopen Button (Hidden by default)
+local OpenBtn = Instance.new("TextButton")
+OpenBtn.Size = UDim2.new(0, 46, 0, 46)
+OpenBtn.Position = UDim2.new(0, 20, 0.5, -23)
+OpenBtn.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+OpenBtn.Text = "⚡"
+OpenBtn.TextColor3 = Color3.fromRGB(0, 220, 255)
+OpenBtn.Font = Enum.Font.GothamBold
+OpenBtn.TextSize = 22
+OpenBtn.Visible = false
+OpenBtn.Active = true
+OpenBtn.Draggable = true
+OpenBtn.Parent = ScreenGui
+Instance.new("UICorner", OpenBtn).CornerRadius = UDim.new(1, 0)
+
+local OpenStroke = Instance.new("UIStroke")
+OpenStroke.Thickness = 2
+OpenStroke.Color = Color3.fromRGB(0, 220, 255)
+OpenStroke.Parent = OpenBtn
+
+-- Main Frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 260, 0, 390)
+MainFrame.Position = UDim2.new(0.5, -130, 0.5, -195)
+MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.ClipsDescendants = true
+MainFrame.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 12)
+MainCorner.Parent = MainFrame
+
+-- Glowing Neon Border
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Thickness = 2
+MainStroke.Color = Color3.fromRGB(255, 255, 255)
+MainStroke.Parent = MainFrame
+
+local StrokeGradient = Instance.new("UIGradient")
+StrokeGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 220, 255)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(140, 80, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 60, 150))
+})
+StrokeGradient.Rotation = 45
+StrokeGradient.Parent = MainStroke
+
+-- Top Bar
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 40)
+TopBar.BackgroundColor3 = Color3.fromRGB(25, 25, 34)
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -45, 1, 0)
+Title.Position = UDim2.new(0, 14, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "⚡ MIMIC PRO"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 15
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TopBar
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 28, 0, 28)
+CloseBtn.Position = UDim2.new(1, -32, 0, 6)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 70)
+CloseBtn.Text = "×"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 18
+CloseBtn.Parent = TopBar
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+
+-- Search Bar Container (Left)
+local SearchContainer = Instance.new("Frame")
+SearchContainer.Size = UDim2.new(1, -92, 0, 34)
+SearchContainer.Position = UDim2.new(0, 8, 0, 48)
+SearchContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 34)
+SearchContainer.BorderSizePixel = 0
+SearchContainer.Parent = MainFrame
+Instance.new("UICorner", SearchContainer).CornerRadius = UDim.new(0, 6)
+
+local SearchBox = Instance.new("TextBox")
+SearchBox.Size = UDim2.new(1, -12, 1, 0)
+SearchBox.Position = UDim2.new(0, 8, 0, 0)
+SearchBox.BackgroundTransparency = 1
+SearchBox.PlaceholderText = "Search..."
+SearchBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 140)
+SearchBox.Text = ""
+SearchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+SearchBox.Font = Enum.Font.Gotham
+SearchBox.TextSize = 13
+SearchBox.TextXAlignment = Enum.TextXAlignment.Left
+SearchBox.ClearTextOnFocus = false
+SearchBox.Parent = SearchContainer
+
+-- Delay Input Container (Right)
+local DelayContainer = Instance.new("Frame")
+DelayContainer.Size = UDim2.new(0, 70, 0, 34)
+DelayContainer.Position = UDim2.new(1, -78, 0, 48)
+DelayContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 34)
+DelayContainer.BorderSizePixel = 0
+DelayContainer.Parent = MainFrame
+Instance.new("UICorner", DelayContainer).CornerRadius = UDim.new(0, 6)
+
+local DelayBox = Instance.new("TextBox")
+DelayBox.Size = UDim2.new(1, -10, 1, 0)
+DelayBox.Position = UDim2.new(0, 5, 0, 0)
+Delay
