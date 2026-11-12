@@ -1,8 +1,9 @@
---// NEON CYBER CONTROL CENTER - ELITE EDITION (AIMBOT + PART SELECT + GRAB TOGGLE + ROSTER)
+--// NEON CYBER CONTROL CENTER - ELITE EDITION (AIMBOT + PART SELECT + GRAB TOGGLE + ROSTER + TEAM TARGETING)
 --// Full replacement LocalScript
 --// Place in StarterPlayer > StarterPlayerScripts
 
 local Players = game:GetService("Players")
+local Teams = game:GetService("Teams")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local SoundService = game:GetService("SoundService")
@@ -25,6 +26,7 @@ end
 --// STATE
 local selectedPlayer = nil
 local selectedPart = nil
+local selectedTeam = nil
 local partSelectArmed = false
 local targetHighlight = nil
 local nearestMode = false
@@ -248,7 +250,7 @@ local headerGlowLine = make("Frame", {
 }, header)
 
 label(header, "⚡ N E O N  //  E X E C U T E", UDim2.new(1, -92, 1, 0), UDim2.fromOffset(14, 0), 13, CYAN)
-label(header, "SYS.CORE // v4.4", UDim2.new(1, -20, 0, 15), UDim2.fromOffset(15, 27), 9, MUTED)
+label(header, "SYS.CORE // v4.5", UDim2.new(1, -20, 0, 15), UDim2.fromOffset(15, 27), 9, MUTED)
 
 local minimizeButton = button(header, "—", UDim2.fromOffset(28, 26), UDim2.new(1, -70, 0, 9), WHITE)
 local closeButton = button(header, "×", UDim2.fromOffset(26, 26), UDim2.new(1, -36, 0, 9), RED)
@@ -307,7 +309,7 @@ local searchInput = make("TextBox", {
     BackgroundColor3 = PANEL,
     BorderSizePixel = 0,
     Text = "",
-    PlaceholderText = "🔍 Search player...",
+    PlaceholderText = "🔍 Search player or team...",
     TextColor3 = WHITE,
     PlaceholderColor3 = MUTED,
     TextSize = 11,
@@ -371,7 +373,7 @@ local openGuiButton = button(floating, "HIDE GUI", UDim2.new(1, -12, 0, 26), UDi
 --// FORWARD DECLARATION
 local refreshRoster
 
-local function findNearestPlayer()
+local function findNearestPlayer(teamFilter)
     local localRoot = getRoot(LocalPlayer)
     if not localRoot then return nil end
 
@@ -380,14 +382,16 @@ local function findNearestPlayer()
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
-            local root = getRoot(player)
-            local humanoid = getHumanoid(player)
+            if not teamFilter or player.Team == teamFilter then
+                local root = getRoot(player)
+                local humanoid = getHumanoid(player)
 
-            if root and humanoid and humanoid.Health > 0 then
-                local distance = (root.Position - localRoot.Position).Magnitude
-                if distance < shortestDistance then
-                    shortestDistance = distance
-                    nearestPlayer = player
+                if root and humanoid and humanoid.Health > 0 then
+                    local distance = (root.Position - localRoot.Position).Magnitude
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        nearestPlayer = player
+                    end
                 end
             end
         end
@@ -415,7 +419,13 @@ local function updateHighlight()
         local targetChar = getCharacter(selectedPlayer)
         if targetChar then
             adornee = targetChar
-            highlightColor = nearestMode and GOLD or GREEN
+            if selectedTeam then
+                highlightColor = selectedTeam.TeamColor.Color
+            elseif nearestMode then
+                highlightColor = GOLD
+            else
+                highlightColor = GREEN
+            end
         end
     end
 
@@ -425,6 +435,8 @@ local function updateHighlight()
     end
 
     if targetHighlight and targetHighlight.Adornee == adornee then
+        targetHighlight.FillColor = highlightColor
+        targetHighlight.OutlineColor = highlightColor
         return
     end
 
@@ -463,6 +475,14 @@ local function updateSelectedDisplay()
     if selectedPart and selectedPart.Parent then
         selectedDisplay.Text = "  > [PART] " .. selectedPart.Name
         selectedDisplay.TextColor3 = GREEN
+    elseif selectedTeam and selectedTeam.Parent == Teams then
+        local teamColor = selectedTeam.TeamColor.Color
+        if selectedPlayer and selectedPlayer.Parent == Players then
+            selectedDisplay.Text = "  > [" .. selectedTeam.Name:upper() .. "] " .. selectedPlayer.DisplayName
+        else
+            selectedDisplay.Text = "  > [" .. selectedTeam.Name:upper() .. "] SCANNING..."
+        end
+        selectedDisplay.TextColor3 = teamColor
     elseif selectedPlayer and selectedPlayer.Parent == Players then
         local prefix = nearestMode and "  > [NEAREST] " or "  > "
         selectedDisplay.Text = prefix .. selectedPlayer.DisplayName .. " (@" .. selectedPlayer.Name .. ")"
@@ -470,6 +490,7 @@ local function updateSelectedDisplay()
     else
         selectedPlayer = nil
         selectedPart = nil
+        selectedTeam = nil
         nearestMode = false
         selectedDisplay.Text = "  NO TARGET LOCKED"
         selectedDisplay.TextColor3 = MUTED
@@ -487,12 +508,15 @@ refreshRoster = function()
     end
 
     rosterButtons = {}
+    local currentOrder = 0
 
+    --// 1. NEAREST TARGET ENTRY
     if searchQuery == "" or ("nearest"):find(searchQuery:lower()) then
         local nearestButton = button(roster, "  ★ NEAREST TARGET", UDim2.new(1, -6, 0, 27), UDim2.new(), GOLD)
-        nearestButton.LayoutOrder = 0
+        nearestButton.LayoutOrder = currentOrder
+        currentOrder += 1
         nearestButton.TextXAlignment = Enum.TextXAlignment.Left
-        nearestButton.BackgroundColor3 = GOLD_DARK
+        nearestButton.BackgroundColor3 = (nearestMode and not selectedTeam) and Color3.fromRGB(80, 58, 12) or GOLD_DARK
 
         local nearestOutline = nearestButton:FindFirstChildOfClass("UIStroke")
         if nearestOutline then
@@ -501,10 +525,15 @@ refreshRoster = function()
         end
 
         nearestButton.MouseEnter:Connect(function() if nearestButton.Parent then nearestButton.BackgroundColor3 = Color3.fromRGB(80, 58, 12) end end)
-        nearestButton.MouseLeave:Connect(function() if nearestButton.Parent then nearestButton.BackgroundColor3 = GOLD_DARK end end)
+        nearestButton.MouseLeave:Connect(function()
+            if nearestButton.Parent then
+                nearestButton.BackgroundColor3 = (nearestMode and not selectedTeam) and Color3.fromRGB(80, 58, 12) or GOLD_DARK
+            end
+        end)
 
         nearestButton.Activated:Connect(function()
             selectedPart = nil
+            selectedTeam = nil
             partSelectArmed = false
             nearestMode = true
             selectedPlayer = findNearestPlayer()
@@ -521,6 +550,7 @@ refreshRoster = function()
         end)
     end
 
+    --// 2. INDIVIDUAL PLAYERS LIST
     local playerList = Players:GetPlayers()
     table.sort(playerList, function(a, b)
         return a.DisplayName:lower() < b.DisplayName:lower()
@@ -533,10 +563,11 @@ refreshRoster = function()
             local fullTextString = (displayName .. " (@" .. userName .. ")"):lower()
 
             if searchQuery == "" or fullTextString:find(searchQuery:lower()) then
-                local isSelected = (targetPlayer == selectedPlayer and not nearestMode and not selectedPart)
+                local isSelected = (targetPlayer == selectedPlayer and not nearestMode and not selectedPart and not selectedTeam)
 
                 local entry = button(roster, "", UDim2.new(1, -6, 0, 27), UDim2.new(), isSelected and GREEN or CYAN)
-                entry.LayoutOrder = #rosterButtons + 1
+                entry.LayoutOrder = currentOrder
+                currentOrder += 1
                 rosterButtons[targetPlayer] = entry
 
                 make("ImageLabel", {
@@ -562,6 +593,7 @@ refreshRoster = function()
 
                 entry.Activated:Connect(function()
                     selectedPart = nil
+                    selectedTeam = nil
                     partSelectArmed = false
                     nearestMode = false
                     selectedPlayer = targetPlayer
@@ -576,11 +608,83 @@ refreshRoster = function()
         end
     end
 
+    --// 3. TEAMS AT THE BOTTOM OF THE LIST
+    local gameTeams = Teams:GetTeams()
+    table.sort(gameTeams, function(a, b)
+        return a.Name:lower() < b.Name:lower()
+    end)
+
+    for _, team in ipairs(gameTeams) do
+        local teamSearchString = ("team " .. team.Name):lower()
+        if searchQuery == "" or teamSearchString:find(searchQuery:lower()) then
+            local isTeamSelected = (selectedTeam == team)
+            local teamColor = team.TeamColor.Color
+
+            local teamBtn = button(roster, "", UDim2.new(1, -6, 0, 27), UDim2.new(), teamColor)
+            teamBtn.LayoutOrder = currentOrder
+            currentOrder += 1
+
+            local teamOutline = teamBtn:FindFirstChildOfClass("UIStroke")
+            if teamOutline then
+                teamOutline.Color = teamColor
+                teamOutline.Transparency = isTeamSelected and 0 or 0.35
+            end
+
+            -- Team color badge
+            local colorBadge = make("Frame", {
+                Size = UDim2.fromOffset(10, 10),
+                Position = UDim2.fromOffset(8, 8),
+                BackgroundColor3 = teamColor,
+                BorderSizePixel = 0,
+            }, teamBtn)
+            round(colorBadge, 3)
+
+            make("TextLabel", {
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, -28, 1, 0),
+                Position = UDim2.fromOffset(24, 0),
+                Font = Enum.Font.Code,
+                TextSize = 11,
+                TextColor3 = isTeamSelected and GREEN or teamColor,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextYAlignment = Enum.TextYAlignment.Center,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+                Text = "⚑ TEAM: " .. team.Name:upper(),
+            }, teamBtn)
+
+            local defaultBg = isTeamSelected and Color3.fromRGB(18, 45, 55) or PANEL_LIGHT
+            teamBtn.BackgroundColor3 = defaultBg
+
+            teamBtn.MouseEnter:Connect(function() if teamBtn.Parent then teamBtn.BackgroundColor3 = Color3.fromRGB(25, 55, 75) end end)
+            teamBtn.MouseLeave:Connect(function() if teamBtn.Parent then teamBtn.BackgroundColor3 = defaultBg end end)
+
+            teamBtn.Activated:Connect(function()
+                selectedPart = nil
+                partSelectArmed = false
+                nearestMode = true
+                selectedTeam = team
+                selectedPlayer = findNearestPlayer(team)
+                updateSelectedDisplay()
+                refreshRoster()
+
+                if selectedPlayer then
+                    statusText.Text = "TEAM LOCK: " .. team.Name:upper()
+                    statusText.TextColor3 = teamColor
+                else
+                    statusText.Text = "NO ALIVE TARGETS ON " .. team.Name:upper()
+                    statusText.TextColor3 = GOLD
+                end
+            end)
+        end
+    end
+
     updateSelectedDisplay()
 end
 
 refreshButton.Activated:Connect(refreshRoster)
 table.insert(globalConnections, Players.PlayerAdded:Connect(refreshRoster))
+table.insert(globalConnections, Teams.ChildAdded:Connect(refreshRoster))
+table.insert(globalConnections, Teams.ChildRemoved:Connect(refreshRoster))
 
 searchInput:GetPropertyChangedSignal("Text"):Connect(function()
     searchQuery = searchInput.Text
@@ -624,6 +728,7 @@ table.insert(globalConnections, UserInputService.InputBegan:Connect(function(inp
         if clickedTarget and clickedTarget:IsA("BasePart") then
             selectedPart = clickedTarget
             selectedPlayer = nil
+            selectedTeam = nil
             nearestMode = false
             partSelectArmed = false
 
@@ -662,7 +767,7 @@ floatingCam.Activated:Connect(toggleCamLock)
 table.insert(globalConnections, Players.PlayerRemoving:Connect(function(targetPlayer)
     if selectedPlayer == targetPlayer then
         if nearestMode then
-            selectedPlayer = findNearestPlayer()
+            selectedPlayer = findNearestPlayer(selectedTeam)
         else
             selectedPlayer = nil
         end
@@ -673,7 +778,7 @@ end))
 
 refreshRoster()
 
---// MAIN RENDER LOOP (AIMBOT + AUTO GRAB TOGGLE + NEAREST SYNC)
+--// MAIN RENDER LOOP (AIMBOT + AUTO GRAB TOGGLE + NEAREST/TEAM SYNC)
 RunService:BindToRenderStep(
     "NeonCyberControlCenterUpdate",
     Enum.RenderPriority.Camera.Value + 1,
@@ -700,8 +805,8 @@ RunService:BindToRenderStep(
         end
 
         if nearestMode and not selectedPart then
-            local nearest = findNearestPlayer()
-            if nearest and nearest ~= selectedPlayer then
+            local nearest = findNearestPlayer(selectedTeam)
+            if nearest ~= selectedPlayer then
                 selectedPlayer = nearest
                 updateSelectedDisplay()
             end
@@ -779,4 +884,4 @@ destroyButton.Activated:Connect(function()
     gui:Destroy()
 end)
 
-print("[NEON CYBER CONTROL CENTER] Elite Edition + Part Aimbot + Grab Toggle + Roster Initialized.")
+print("[NEON CYBER CONTROL CENTER] Elite Edition + Team Targeting + Part Aimbot + Grab Toggle Initialized.")
