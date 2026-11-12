@@ -1,4 +1,4 @@
---// NEON CYBER CONTROL CENTER - ELITE EDITION (AIMBOT + PART SELECT + GRAB TOGGLE + ROSTER + TEAM TARGETING + WALLCHECK)
+--// NEON CYBER CONTROL CENTER - ELITE EDITION (FIXED BUTTON CONNECTIONS + VISIBILITY)
 --// Full replacement LocalScript
 --// Place in StarterPlayer > StarterPlayerScripts
 
@@ -7,9 +7,11 @@ local Teams = game:GetService("Teams")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local SoundService = game:GetService("SoundService")
+local MarketplaceService = game:GetService("MarketplaceService")
 
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
+if not PlayerGui then return end
 local Mouse = LocalPlayer:GetMouse()
 
 local CONFIG = {
@@ -23,10 +25,34 @@ if oldGui then
     oldGui:Destroy()
 end
 
+--// DETECT IF CURRENT GAME IS MM2 / MMV
+local isMM2Game = false
+pcall(function()
+    local placeId = game.PlaceId
+    if placeId == 142823291 or placeId == 66654930 or placeId == 3288497042 then
+        isMM2Game = true
+    else
+        local info = MarketplaceService:GetProductInfo(placeId)
+        if info and info.Name then
+            local lowerName = info.Name:lower()
+            if lowerName:find("murder") or lowerName:find("mm2") or lowerName:find("mmv") or lowerName:find("mystery") then
+                isMM2Game = true
+            end
+        end
+    end
+end)
+
+if not isMM2Game then
+    if workspace:FindFirstChild("GunDrop") or workspace:FindFirstChild("CoinContainer") or workspace:FindFirstChild("Normal") then
+        isMM2Game = true
+    end
+end
+
 --// STATE
 local selectedPlayer = nil
 local selectedPart = nil
 local selectedTeam = nil
+local selectedRole = nil
 local partSelectArmed = false
 local targetHighlight = nil
 local nearestMode = false
@@ -36,7 +62,7 @@ local grabToggleEnabled = true
 local wasCamLockBeforeGrab = false
 local isCurrentlyGrabbed = false
 local searchQuery = ""
-local minimized = false
+local minimized = true -- Starts minimized so only Quick Access appears
 local destroyed = false
 
 local characterConnections = {}
@@ -74,6 +100,49 @@ local function getCamera()
     return workspace.CurrentCamera
 end
 
+--// MM2 / MMV ROLE DETECTION CHECKERS
+local function hasTool(player, toolNamePattern)
+    local char = getCharacter(player)
+    if char then
+        for _, item in ipairs(char:GetChildren()) do
+            if item:IsA("Tool") and item.Name:lower():find(toolNamePattern) then
+                return true
+            end
+        end
+    end
+    local bp = player:FindFirstChild("Backpack")
+    if bp then
+        for _, item in ipairs(bp:GetChildren()) do
+            if item:IsA("Tool") and item.Name:lower():find(toolNamePattern) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function isMurderer(player)
+    if hasTool(player, "knife") or hasTool(player, "blade") or hasTool(player, "dagger") then
+        return true
+    end
+    local char = getCharacter(player)
+    if char and (char:FindFirstChild("Knife") or char:FindFirstChild("MurdererItem")) then
+        return true
+    end
+    return false
+end
+
+local function isSheriff(player)
+    if hasTool(player, "gun") or hasTool(player, "revolver") or hasTool(player, "pistol") then
+        return true
+    end
+    local char = getCharacter(player)
+    if char and (char:FindFirstChild("Gun") or char:FindFirstChild("SheriffItem")) then
+        return true
+    end
+    return false
+end
+
 --// RAYCAST PARAMS FOR WALLCHECK
 local raycastParams = RaycastParams.new()
 raycastParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -87,7 +156,6 @@ local function isVisible(targetPart)
     local origin = camera.CFrame.Position
     local direction = targetPart.Position - origin
 
-    -- Exclude local player's character and target's character from raycast hits
     local excludeList = { LocalPlayer.Character }
     if targetPart.Parent then
         table.insert(excludeList, targetPart.Parent)
@@ -95,12 +163,54 @@ local function isVisible(targetPart)
     raycastParams.FilterDescendantsInstances = excludeList
 
     local result = workspace:Raycast(origin, direction, raycastParams)
-    -- If no obstacle hit, or the hit is part of the target character itself, it's visible
     if not result or result.Instance:IsDescendantOf(targetPart.Parent) then
         return true
     end
 
     return false
+end
+
+local function matchesFilter(player, teamFilter, roleFilter)
+    if player == LocalPlayer then return false end
+    
+    if roleFilter == "Murderer" and not isMurderer(player) then return false end
+    if roleFilter == "Sheriff" and not isSheriff(player) then return false end
+    if teamFilter and player.Team ~= teamFilter then return false end
+
+    local root = getRoot(player)
+    local humanoid = getHumanoid(player)
+    local targetPart = getTargetPart(player)
+
+    if not root or not humanoid or humanoid.Health <= 0 or not targetPart then
+        return false
+    end
+
+    if wallCheckEnabled and not isVisible(targetPart) then
+        return false
+    end
+
+    return true
+end
+
+local function findNearestTarget()
+    local localRoot = getRoot(LocalPlayer)
+    if not localRoot then return nil end
+
+    local nearestPlayer = nil
+    local shortestDistance = math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if matchesFilter(player, selectedTeam, selectedRole) then
+            local root = getRoot(player)
+            local distance = (root.Position - localRoot.Position).Magnitude
+            if distance < shortestDistance then
+                shortestDistance = distance
+                nearestPlayer = player
+            end
+        end
+    end
+
+    return nearestPlayer
 end
 
 --// GUI ROOT
@@ -122,9 +232,11 @@ local RED = Color3.fromRGB(255, 45, 85)
 local WHITE = Color3.fromRGB(235, 245, 255)
 local MUTED = Color3.fromRGB(90, 125, 155)
 
---// NEAREST COLORS (GOLD)
+--// ROLE COLORS
 local GOLD = Color3.fromRGB(255, 190, 40)
 local GOLD_DARK = Color3.fromRGB(45, 33, 10)
+local MURDER_RED = Color3.fromRGB(255, 30, 60)
+local SHERIFF_BLUE = Color3.fromRGB(50, 150, 255)
 
 local function make(className, props, parent)
     local obj = Instance.new(className)
@@ -233,7 +345,7 @@ local function makeDraggable(object, dragHandle)
     end)
 end
 
---// MAIN PANEL
+--// MAIN PANEL (STARTS INVISIBLE)
 local main = make("Frame", {
     Name = "MainPanel",
     Size = UDim2.fromOffset(350, 490),
@@ -241,6 +353,7 @@ local main = make("Frame", {
     BackgroundColor3 = BG,
     BackgroundTransparency = 0.04,
     BorderSizePixel = 0,
+    Visible = false,
 }, gui)
 
 round(main, 14)
@@ -253,6 +366,25 @@ make("UIGradient", {
     }),
     Rotation = 90,
 }, main)
+
+--// FLOATING CONTROLS (QUICK ACCESS)
+local floating = make("Frame", {
+    Name = "FloatingControls",
+    Size = UDim2.fromOffset(160, 86),
+    Position = UDim2.new(0, 390, 0, 10),
+    BackgroundColor3 = BG,
+    BackgroundTransparency = 0.08,
+    BorderSizePixel = 0,
+}, gui)
+
+round(floating, 10)
+stroke(floating, CYAN, 1.2, 0.1)
+makeDraggable(floating)
+
+label(floating, "QUICK ACCESS", UDim2.new(1, -12, 0, 18), UDim2.fromOffset(7, 2), 9, MUTED)
+
+local floatingCam = button(floating, "◎ AIMBOT: OFF", UDim2.new(1, -12, 0, 26), UDim2.fromOffset(6, 23), CYAN)
+local openGuiButton = button(floating, "SHOW GUI", UDim2.new(1, -12, 0, 26), UDim2.fromOffset(6, 52), CYAN)
 
 --// HEADER
 local header = make("Frame", {
@@ -280,7 +412,7 @@ local headerGlowLine = make("Frame", {
 }, header)
 
 label(header, "⚡ N E O N  //  E X E C U T E", UDim2.new(1, -92, 1, 0), UDim2.fromOffset(14, 0), 13, CYAN)
-label(header, "SYS.CORE // v4.6", UDim2.new(1, -20, 0, 15), UDim2.fromOffset(15, 27), 9, MUTED)
+label(header, "SYS.CORE // v5.1", UDim2.new(1, -20, 0, 15), UDim2.fromOffset(15, 27), 9, MUTED)
 
 local minimizeButton = button(header, "—", UDim2.fromOffset(28, 26), UDim2.new(1, -70, 0, 9), WHITE)
 local closeButton = button(header, "×", UDim2.fromOffset(26, 26), UDim2.new(1, -36, 0, 9), RED)
@@ -384,59 +516,9 @@ local destroyButton = button(main, "TERMINATE GUI", UDim2.new(1, -24, 0, 31), UD
 
 label(main, "HOTKEY: [ N ] TO TOGGLE PANEL", UDim2.new(1, -24, 0, 17), UDim2.fromOffset(12, 444), 9, MUTED)
 
---// FLOATING CONTROLS (QUICK ACCESS)
-local floating = make("Frame", {
-    Name = "FloatingControls",
-    Size = UDim2.fromOffset(160, 86),
-    Position = UDim2.new(0, 24, 0, 480),
-    BackgroundColor3 = BG,
-    BackgroundTransparency = 0.08,
-    BorderSizePixel = 0,
-}, gui)
-
-round(floating, 10)
-stroke(floating, CYAN, 1.2, 0.1)
-makeDraggable(floating)
-
-label(floating, "QUICK ACCESS", UDim2.new(1, -12, 0, 18), UDim2.fromOffset(7, 2), 9, MUTED)
-
-local floatingCam = button(floating, "◎ AIMBOT: OFF", UDim2.new(1, -12, 0, 26), UDim2.fromOffset(6, 23), CYAN)
-local openGuiButton = button(floating, "HIDE GUI", UDim2.new(1, -12, 0, 26), UDim2.fromOffset(6, 52), CYAN)
-
 --// FORWARD DECLARATION
 local refreshRoster
 
-local function findNearestPlayer(teamFilter)
-    local localRoot = getRoot(LocalPlayer)
-    if not localRoot then return nil end
-
-    local nearestPlayer = nil
-    local shortestDistance = math.huge
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            if not teamFilter or player.Team == teamFilter then
-                local root = getRoot(player)
-                local humanoid = getHumanoid(player)
-                local targetPart = getTargetPart(player)
-
-                if root and humanoid and humanoid.Health > 0 and targetPart then
-                    if not wallCheckEnabled or isVisible(targetPart) then
-                        local distance = (root.Position - localRoot.Position).Magnitude
-                        if distance < shortestDistance then
-                            shortestDistance = distance
-                            nearestPlayer = player
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    return nearestPlayer
-end
-
---// HIGHLIGHT MANAGEMENT
 local function clearHighlight()
     if targetHighlight then
         targetHighlight:Destroy()
@@ -455,7 +537,11 @@ local function updateHighlight()
         local targetChar = getCharacter(selectedPlayer)
         if targetChar then
             adornee = targetChar
-            if selectedTeam then
+            if selectedRole == "Murderer" then
+                highlightColor = MURDER_RED
+            elseif selectedRole == "Sheriff" then
+                highlightColor = SHERIFF_BLUE
+            elseif selectedTeam then
                 highlightColor = selectedTeam.TeamColor.Color
             elseif nearestMode then
                 highlightColor = GOLD
@@ -511,6 +597,14 @@ local function updateSelectedDisplay()
     if selectedPart and selectedPart.Parent then
         selectedDisplay.Text = "  > [PART] " .. selectedPart.Name
         selectedDisplay.TextColor3 = GREEN
+    elseif selectedRole then
+        local roleColor = (selectedRole == "Murderer") and MURDER_RED or SHERIFF_BLUE
+        if selectedPlayer and selectedPlayer.Parent == Players then
+            selectedDisplay.Text = "  > [" .. selectedRole:upper() .. "] " .. selectedPlayer.DisplayName
+        else
+            selectedDisplay.Text = "  > [" .. selectedRole:upper() .. "] SCANNING..."
+        end
+        selectedDisplay.TextColor3 = roleColor
     elseif selectedTeam and selectedTeam.Parent == Teams then
         local teamColor = selectedTeam.TeamColor.Color
         if selectedPlayer and selectedPlayer.Parent == Players then
@@ -527,6 +621,7 @@ local function updateSelectedDisplay()
         selectedPlayer = nil
         selectedPart = nil
         selectedTeam = nil
+        selectedRole = nil
         nearestMode = false
         selectedDisplay.Text = "  NO TARGET LOCKED"
         selectedDisplay.TextColor3 = MUTED
@@ -546,13 +641,82 @@ refreshRoster = function()
     rosterButtons = {}
     local currentOrder = 0
 
-    --// 1. NEAREST TARGET ENTRY
+    if isMM2Game then
+        local roles = {
+            {Name = "Murderer", Color = MURDER_RED},
+            {Name = "Sheriff", Color = SHERIFF_BLUE}
+        }
+
+        for _, roleData in ipairs(roles) do
+            local roleSearchString = ("role " .. roleData.Name):lower()
+            if searchQuery == "" or roleSearchString:find(searchQuery:lower()) or roleData.Name:lower():find(searchQuery:lower()) then
+                local isRoleSelected = (selectedRole == roleData.Name)
+
+                local roleBtn = button(roster, "", UDim2.new(1, -6, 0, 27), UDim2.new(), roleData.Color)
+                roleBtn.LayoutOrder = currentOrder
+                currentOrder += 1
+
+                local roleOutline = roleBtn:FindFirstChildOfClass("UIStroke")
+                if roleOutline then
+                    roleOutline.Color = roleData.Color
+                    roleOutline.Transparency = isRoleSelected and 0 or 0.35
+                end
+
+                local iconBadge = make("Frame", {
+                    Size = UDim2.fromOffset(10, 10),
+                    Position = UDim2.fromOffset(8, 8),
+                    BackgroundColor3 = roleData.Color,
+                    BorderSizePixel = 0,
+                }, roleBtn)
+                round(iconBadge, 3)
+
+                make("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, -28, 1, 0),
+                    Position = UDim2.fromOffset(24, 0),
+                    Font = Enum.Font.Code,
+                    TextSize = 11,
+                    TextColor3 = isRoleSelected and GREEN or roleData.Color,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextYAlignment = Enum.TextYAlignment.Center,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                    Text = "⚡ ROLE: " .. roleData.Name:upper(),
+                }, roleBtn)
+
+                local defaultBg = isRoleSelected and Color3.fromRGB(22, 40, 55) or PANEL_LIGHT
+                roleBtn.BackgroundColor3 = defaultBg
+
+                roleBtn.MouseEnter:Connect(function() if roleBtn.Parent then roleBtn.BackgroundColor3 = Color3.fromRGB(30, 55, 75) end end)
+                roleBtn.MouseLeave:Connect(function() if roleBtn.Parent then roleBtn.BackgroundColor3 = defaultBg end end)
+
+                roleBtn.Activated:Connect(function()
+                    selectedPart = nil
+                    selectedTeam = nil
+                    partSelectArmed = false
+                    nearestMode = true
+                    selectedRole = roleData.Name
+                    selectedPlayer = findNearestTarget()
+                    updateSelectedDisplay()
+                    refreshRoster()
+
+                    if selectedPlayer then
+                        statusText.Text = "ROLE TARGET: " .. roleData.Name:upper()
+                        statusText.TextColor3 = roleData.Color
+                    else
+                        statusText.Text = "NO " .. roleData.Name:upper() .. " FOUND YET"
+                        statusText.TextColor3 = GOLD
+                    end
+                end)
+            end
+        end
+    end
+
     if searchQuery == "" or ("nearest"):find(searchQuery:lower()) then
         local nearestButton = button(roster, "  ★ NEAREST TARGET", UDim2.new(1, -6, 0, 27), UDim2.new(), GOLD)
         nearestButton.LayoutOrder = currentOrder
         currentOrder += 1
         nearestButton.TextXAlignment = Enum.TextXAlignment.Left
-        nearestButton.BackgroundColor3 = (nearestMode and not selectedTeam) and Color3.fromRGB(80, 58, 12) or GOLD_DARK
+        nearestButton.BackgroundColor3 = (nearestMode and not selectedTeam and not selectedRole) and Color3.fromRGB(80, 58, 12) or GOLD_DARK
 
         local nearestOutline = nearestButton:FindFirstChildOfClass("UIStroke")
         if nearestOutline then
@@ -563,16 +727,17 @@ refreshRoster = function()
         nearestButton.MouseEnter:Connect(function() if nearestButton.Parent then nearestButton.BackgroundColor3 = Color3.fromRGB(80, 58, 12) end end)
         nearestButton.MouseLeave:Connect(function()
             if nearestButton.Parent then
-                nearestButton.BackgroundColor3 = (nearestMode and not selectedTeam) and Color3.fromRGB(80, 58, 12) or GOLD_DARK
+                nearestButton.BackgroundColor3 = (nearestMode and not selectedTeam and not selectedRole) and Color3.fromRGB(80, 58, 12) or GOLD_DARK
             end
         end)
 
         nearestButton.Activated:Connect(function()
             selectedPart = nil
             selectedTeam = nil
+            selectedRole = nil
             partSelectArmed = false
             nearestMode = true
-            selectedPlayer = findNearestPlayer()
+            selectedPlayer = findNearestTarget()
             updateSelectedDisplay()
             refreshRoster()
 
@@ -580,13 +745,12 @@ refreshRoster = function()
                 statusText.Text = "TARGET LOCKED: NEAREST"
                 statusText.TextColor3 = GOLD
             else
-                statusText.Text = "NO VISIBLE TARGETS FOUND"
+                statusText.Text = "NO VALID TARGETS FOUND"
                 statusText.TextColor3 = RED
             end
         end)
     end
 
-    --// 2. INDIVIDUAL PLAYERS LIST
     local playerList = Players:GetPlayers()
     table.sort(playerList, function(a, b)
         return a.DisplayName:lower() < b.DisplayName:lower()
@@ -599,7 +763,7 @@ refreshRoster = function()
             local fullTextString = (displayName .. " (@" .. userName .. ")"):lower()
 
             if searchQuery == "" or fullTextString:find(searchQuery:lower()) then
-                local isSelected = (targetPlayer == selectedPlayer and not nearestMode and not selectedPart and not selectedTeam)
+                local isSelected = (targetPlayer == selectedPlayer and not nearestMode and not selectedPart and not selectedTeam and not selectedRole)
 
                 local entry = button(roster, "", UDim2.new(1, -6, 0, 27), UDim2.new(), isSelected and GREEN or CYAN)
                 entry.LayoutOrder = currentOrder
@@ -630,6 +794,7 @@ refreshRoster = function()
                 entry.Activated:Connect(function()
                     selectedPart = nil
                     selectedTeam = nil
+                    selectedRole = nil
                     partSelectArmed = false
                     nearestMode = false
                     selectedPlayer = targetPlayer
@@ -644,7 +809,6 @@ refreshRoster = function()
         end
     end
 
-    --// 3. TEAMS AT THE BOTTOM OF THE LIST
     local gameTeams = Teams:GetTeams()
     table.sort(gameTeams, function(a, b)
         return a.Name:lower() < b.Name:lower()
@@ -695,10 +859,11 @@ refreshRoster = function()
 
             teamBtn.Activated:Connect(function()
                 selectedPart = nil
+                selectedRole = nil
                 partSelectArmed = false
                 nearestMode = true
                 selectedTeam = team
-                selectedPlayer = findNearestPlayer(team)
+                selectedPlayer = findNearestTarget()
                 updateSelectedDisplay()
                 refreshRoster()
 
@@ -739,7 +904,6 @@ selectPartButton.Activated:Connect(function()
     end
 end)
 
---// GRAB TOGGLE BUTTON LOGIC
 grabToggleButton.Activated:Connect(function()
     grabToggleEnabled = not grabToggleEnabled
     local btnStroke = grabToggleButton:FindFirstChildOfClass("UIStroke")
@@ -755,7 +919,6 @@ grabToggleButton.Activated:Connect(function()
     end
 end)
 
---// WALLCHECK TOGGLE BUTTON LOGIC
 wallCheckButton.Activated:Connect(function()
     wallCheckEnabled = not wallCheckEnabled
     local btnStroke = wallCheckButton:FindFirstChildOfClass("UIStroke")
@@ -780,6 +943,7 @@ table.insert(globalConnections, UserInputService.InputBegan:Connect(function(inp
             selectedPart = clickedTarget
             selectedPlayer = nil
             selectedTeam = nil
+            selectedRole = nil
             nearestMode = false
             partSelectArmed = false
 
@@ -812,13 +976,14 @@ local function toggleCamLock()
     setCamLock(not camLockEnabled)
 end
 
+--// PROPERLY ATTACH BUTTON TOGGLES
 camButton.Activated:Connect(toggleCamLock)
 floatingCam.Activated:Connect(toggleCamLock)
 
 table.insert(globalConnections, Players.PlayerRemoving:Connect(function(targetPlayer)
     if selectedPlayer == targetPlayer then
         if nearestMode then
-            selectedPlayer = findNearestPlayer(selectedTeam)
+            selectedPlayer = findNearestTarget()
         else
             selectedPlayer = nil
         end
@@ -829,17 +994,32 @@ end))
 
 refreshRoster()
 
---// MAIN RENDER LOOP (AIMBOT + AUTO GRAB TOGGLE + NEAREST/TEAM SYNC + WALLCHECK)
+--// MAIN RENDER LOOP (AIMBOT + ROBUST GRAB TOGGLE DETECTION + TARGET SYNC + WALLCHECK)
 RunService:BindToRenderStep(
     "NeonCyberControlCenterUpdate",
     Enum.RenderPriority.Camera.Value + 1,
     function()
         if destroyed then return end
 
-        --// GRAB TOGGLE AUTOMATION CHECK
         if grabToggleEnabled then
+            local holdingSomething = false
+            
             local grabFolder = workspace:FindFirstChild("GrabParts")
-            local holdingSomething = grabFolder and #grabFolder:GetChildren() > 0
+            if grabFolder and #grabFolder:GetChildren() > 0 then
+                holdingSomething = true
+            end
+
+            local char = LocalPlayer.Character
+            if char and not holdingSomething then
+                for _, child in ipairs(char:GetChildren()) do
+                    if child:IsA("Weld") or child:IsA("WeldConstraint") then
+                        if child.Part1 and not child.Part1:IsDescendantOf(char) then
+                            holdingSomething = true
+                            break
+                        end
+                    end
+                end
+            end
 
             if holdingSomething and not isCurrentlyGrabbed then
                 isCurrentlyGrabbed = true
@@ -856,7 +1036,7 @@ RunService:BindToRenderStep(
         end
 
         if nearestMode and not selectedPart then
-            local nearest = findNearestPlayer(selectedTeam)
+            local nearest = findNearestTarget()
             if nearest ~= selectedPlayer then
                 selectedPlayer = nearest
                 updateSelectedDisplay()
@@ -867,7 +1047,6 @@ RunService:BindToRenderStep(
 
         local targetPart = getTargetPart(selectedPlayer)
         if camLockEnabled and targetPart then
-            -- If wallcheck is on, ensure target is visible before locking camera
             if not wallCheckEnabled or isVisible(targetPart) then
                 local camera = getCamera()
                 if camera then
@@ -895,7 +1074,6 @@ table.insert(globalConnections, UserInputService.InputBegan:Connect(function(inp
     end
 end))
 
---// RGB BORDER EFFECT
 task.spawn(function()
     local hue = 0
     while gui.Parent and not destroyed do
@@ -938,4 +1116,4 @@ destroyButton.Activated:Connect(function()
     gui:Destroy()
 end)
 
-print("[NEON CYBER CONTROL CENTER] Elite Edition + Wallcheck + Team Targeting + Part Aimbot Initialized.")
+print("[NEON CYBER CONTROL CENTER] Elite Edition Initialized Successfully.")
