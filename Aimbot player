@@ -1,4 +1,4 @@
---// NEON CYBER CONTROL CENTER - ELITE EDITION (WITH BOT DETECTION)
+--// NEON CYBER CONTROL CENTER - ELITE EDITION (FIXED WALLCHECK + BOT DETECTION)
 --// Full replacement LocalScript
 --// Place in StarterPlayer > StarterPlayerScripts
 
@@ -49,7 +49,7 @@ if not isMM2Game then
 end
 
 --// STATE
-local selectedPlayer = nil -- Can be a Player or a Model (Bot)
+local selectedPlayer = nil
 local selectedPart = nil
 local selectedTeam = nil
 local selectedRole = nil
@@ -58,12 +58,12 @@ local targetHighlight = nil
 local nearestMode = false
 local camLockEnabled = false
 local wallCheckEnabled = false
-local botsEnabled = false -- Bot detection state
+local botsEnabled = false
 local grabToggleEnabled = true
 local wasCamLockBeforeGrab = false
 local isCurrentlyGrabbed = false
 local searchQuery = ""
-local minimized = true -- Starts minimized so only Quick Access appears
+local minimized = true
 local destroyed = false
 
 local characterConnections = {}
@@ -152,7 +152,7 @@ local function isSheriff(player)
     return false
 end
 
---// RAYCAST PARAMS FOR WALLCHECK
+--// RAYCAST PARAMS FOR WALLCHECK (FIXED)
 local raycastParams = RaycastParams.new()
 raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 raycastParams.IgnoreWater = true
@@ -165,14 +165,23 @@ local function isVisible(targetPart)
     local origin = camera.CFrame.Position
     local direction = targetPart.Position - origin
 
-    local excludeList = { LocalPlayer.Character }
+    local excludeList = {}
+    if LocalPlayer.Character then
+        table.insert(excludeList, LocalPlayer.Character)
+    end
     if targetPart.Parent then
         table.insert(excludeList, targetPart.Parent)
     end
+    
     raycastParams.FilterDescendantsInstances = excludeList
 
     local result = workspace:Raycast(origin, direction, raycastParams)
-    if not result or result.Instance:IsDescendantOf(targetPart.Parent) then
+    if not result then
+        return true
+    end
+
+    -- If the ray hit a part belonging to the target model/character, they are visible
+    if result.Instance:IsDescendantOf(targetPart.Parent) then
         return true
     end
 
@@ -224,7 +233,6 @@ local function findNearestTarget()
     if botsEnabled then
         for _, descendant in ipairs(workspace:GetDescendants()) do
             if descendant:IsA("Model") and descendant ~= LocalPlayer.Character then
-                -- Ensure it's not a player character
                 if not Players:GetPlayerFromCharacter(descendant) then
                     local root = descendant:FindFirstChild("HumanoidRootPart")
                     local humanoid = descendant:FindFirstChildOfClass("Humanoid")
@@ -378,7 +386,7 @@ local function makeDraggable(object, dragHandle)
     end)
 end
 
---// MAIN PANEL (STARTS INVISIBLE)
+--// MAIN PANEL
 local main = make("Frame", {
     Name = "MainPanel",
     Size = UDim2.fromOffset(350, 510),
@@ -445,7 +453,7 @@ local headerGlowLine = make("Frame", {
 }, header)
 
 label(header, "⚡ N E O N  //  E X E C U T E", UDim2.new(1, -92, 1, 0), UDim2.fromOffset(14, 0), 13, CYAN)
-label(header, "SYS.CORE // v5.2", UDim2.new(1, -20, 0, 15), UDim2.fromOffset(15, 27), 9, MUTED)
+label(header, "SYS.CORE // v5.5", UDim2.new(1, -20, 0, 15), UDim2.fromOffset(15, 27), 9, MUTED)
 
 local minimizeButton = button(header, "—", UDim2.fromOffset(28, 26), UDim2.new(1, -70, 0, 9), WHITE)
 local closeButton = button(header, "×", UDim2.fromOffset(26, 26), UDim2.new(1, -36, 0, 9), RED)
@@ -493,7 +501,7 @@ round(selectedDisplay, 6)
 stroke(selectedDisplay, BLUE, 1, 0.5)
 
 --// PLAYER ROSTER HEADER & REFRESH
-label(main, "ACTIVE ENTITIES", UDim2.new(0.6, 0, 0, 17), UDim2.fromOffset(12, 148), 10, MUTED)
+label(main, "ACTIVE ENTITIES (AUTO-SYNC)", UDim2.new(0.6, 0, 0, 17), UDim2.fromOffset(12, 148), 10, MUTED)
 
 local refreshButton = button(main, "↻ SYNC", UDim2.fromOffset(72, 22), UDim2.new(1, -84, 0, 146), CYAN)
 
@@ -524,7 +532,7 @@ local grabToggleButton = button(main, "✋ GRAB TOGGLE: ON", UDim2.new(1, -24, 0
 --// WALLCHECK TOGGLE BUTTON
 local wallCheckButton = button(main, "🛡 WALLCHECK: OFF", UDim2.new(1, -24, 0, 26), UDim2.fromOffset(12, 264), CYAN)
 
---// BOTS TOGGLE BUTTON (NEW)
+--// BOTS TOGGLE BUTTON
 local botsButton = button(main, "🤖 BOTS / OFF", UDim2.new(1, -24, 0, 26), UDim2.fromOffset(12, 294), CYAN)
 
 --// PLAYER ROSTER SCROLLING FRAME
@@ -849,6 +857,56 @@ refreshRoster = function()
         end
     end
 
+    -- Include bots in the roster if botsEnabled is true
+    if botsEnabled then
+        for _, descendant in ipairs(workspace:GetDescendants()) do
+            if descendant:IsA("Model") and descendant ~= LocalPlayer.Character then
+                if not Players:GetPlayerFromCharacter(descendant) then
+                    local root = descendant:FindFirstChild("HumanoidRootPart")
+                    local humanoid = descendant:FindFirstChildOfClass("Humanoid")
+                    if root and humanoid and humanoid.Health > 0 then
+                        local botName = descendant.Name
+                        if searchQuery == "" or botName:lower():find(searchQuery:lower()) then
+                            local isSelected = (descendant == selectedPlayer and not nearestMode and not selectedPart)
+
+                            local botEntry = button(roster, "", UDim2.new(1, -6, 0, 27), UDim2.new(), isSelected and GREEN or GOLD)
+                            botEntry.LayoutOrder = currentOrder
+                            currentOrder += 1
+
+                            make("TextLabel", {
+                                BackgroundTransparency = 1,
+                                Size = UDim2.new(1, -12, 1, 0),
+                                Position = UDim2.fromOffset(8, 0),
+                                Font = Enum.Font.Code,
+                                TextSize = 11,
+                                TextColor3 = isSelected and GREEN or GOLD,
+                                TextXAlignment = Enum.TextXAlignment.Left,
+                                TextYAlignment = Enum.TextYAlignment.Center,
+                                TextTruncate = Enum.TextTruncate.AtEnd,
+                                Text = "🤖 [BOT] " .. botName,
+                            }, botEntry)
+
+                            botEntry.Activated:Connect(function()
+                                selectedPart = nil
+                                selectedTeam = nil
+                                selectedRole = nil
+                                partSelectArmed = false
+                                nearestMode = false
+                                selectedPlayer = descendant
+                                updateSelectedDisplay()
+                                refreshRoster()
+                            end)
+
+                            if isSelected then
+                                botEntry.BackgroundColor3 = Color3.fromRGB(50, 45, 15)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     local gameTeams = Teams:GetTeams()
     table.sort(gameTeams, function(a, b)
         return a.Name:lower() < b.Name:lower()
@@ -923,6 +981,7 @@ end
 
 refreshButton.Activated:Connect(refreshRoster)
 table.insert(globalConnections, Players.PlayerAdded:Connect(refreshRoster))
+table.insert(globalConnections, Players.PlayerRemoving:Connect(refreshRoster))
 table.insert(globalConnections, Teams.ChildAdded:Connect(refreshRoster))
 table.insert(globalConnections, Teams.ChildRemoved:Connect(refreshRoster))
 
@@ -974,7 +1033,6 @@ wallCheckButton.Activated:Connect(function()
     end
 end)
 
---// BOTS TOGGLE BUTTON EVENT
 botsButton.Activated:Connect(function()
     botsEnabled = not botsEnabled
     local btnStroke = botsButton:FindFirstChildOfClass("UIStroke")
@@ -993,10 +1051,7 @@ botsButton.Activated:Connect(function()
         statusText.TextColor3 = CYAN
     end
 
-    if nearestMode then
-        selectedPlayer = findNearestTarget()
-        updateSelectedDisplay()
-    end
+    refreshRoster()
 end)
 
 table.insert(globalConnections, UserInputService.InputBegan:Connect(function(input, processed)
@@ -1044,28 +1099,15 @@ end
 camButton.Activated:Connect(toggleCamLock)
 floatingCam.Activated:Connect(toggleCamLock)
 
-table.insert(globalConnections, Players.PlayerRemoving:Connect(function(targetPlayer)
-    if selectedPlayer == targetPlayer then
-        if nearestMode then
-            selectedPlayer = findNearestTarget()
-        else
-            selectedPlayer = nil
-        end
-        updateSelectedDisplay()
-    end
-    refreshRoster()
-end))
-
 refreshRoster()
 
---// MAIN RENDER LOOP (AIMBOT + BOT VALIDATION + ROBUST GRAB TOGGLE DETECTION)
+--// MAIN RENDER LOOP
 RunService:BindToRenderStep(
     "NeonCyberControlCenterUpdate",
     Enum.RenderPriority.Camera.Value + 1,
     function()
         if destroyed then return end
 
-        -- Check if bot target was removed / destroyed
         if selectedPlayer and typeof(selectedPlayer) == "Instance" and selectedPlayer:IsA("Model") then
             if not selectedPlayer.Parent or not selectedPlayer:FindFirstChild("HumanoidRootPart") then
                 if nearestMode then
@@ -1192,4 +1234,4 @@ destroyButton.Activated:Connect(function()
     gui:Destroy()
 end)
 
-print("[NEON CYBER CONTROL CENTER] Elite Edition (Bot Detection Enabled) Initialized.")
+print("[NEON CYBER CONTROL CENTER] Elite Edition (Wallcheck Fix Applied) Initialized.")
